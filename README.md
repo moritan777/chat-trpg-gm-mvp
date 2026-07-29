@@ -21,7 +21,7 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 
 を LLM が担当する構成を採用しています。
 
-\---
+---
 
 # 特徴
 
@@ -37,13 +37,13 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 * LLMによるGM描写
 * Embeddingによる行動判定
 
-\---
+---
 
 # LLM / Embedding 設定
 
 > ⚠️ 本プロジェクトは OpenAI 互換 API を提供する LLM サーバーを前提としています。
 >
-> 動作確認は \\\\\\\*\\\\\\\*llama.cpp server\\\\\\\*\\\\\\\* と \\\\\\\*\\\\\\\*ローカル Embedding Server\\\\\\\*\\\\\\\* の組み合わせで行っています。
+> 動作確認は **llama.cpp server** と **ローカル Embedding Server** の組み合わせで行っています。
 
 ## 必要サービス
 
@@ -68,14 +68,14 @@ Embedding  : http://127.0.0.1:8081/v1
 ### LLM
 
 ```powershell
-$env:LLM\\\\\\\_PROVIDER="llama\\\\\\\_cpp"
-$env:LLAMA\\\\\\\_CPP\\\\\\\_BASE\\\\\\\_URL="http://127.0.0.1:8080/v1"
+$env:LLM_PROVIDER="llama_cpp"
+$env:LLAMA_CPP_BASE_URL="http://127.0.0.1:8080/v1"
 ```
 
 ### Embedding
 
 ```powershell
-$env:EMBEDDING\\\\\\\_BASE\\\\\\\_URL="http://127.0.0.1:8081/v1"
+$env:EMBEDDING_BASE_URL="http://127.0.0.1:8081/v1"
 ```
 
 ### 発見表示
@@ -83,13 +83,13 @@ $env:EMBEDDING\\\\\\\_BASE\\\\\\\_URL="http://127.0.0.1:8081/v1"
 通常プレイ:
 
 ```powershell
-$env:DISCOVERY\\\\\\\_DISPLAY="gm"
+$env:DISCOVERY_DISPLAY="gm"
 ```
 
 デバッグ表示:
 
 ```powershell
-$env:DISCOVERY\\\\\\\_DISPLAY="both"
+$env:DISCOVERY_DISPLAY="both"
 ```
 
 \*\*\*
@@ -99,7 +99,7 @@ $env:DISCOVERY\\\\\\\_DISPLAY="both"
 ゲーム起動時に以下のような表示が出れば正常です。
 
 ```text
-LLM: 有効 provider=llama\\\\\\\_cpp
+LLM: 有効 provider=llama_cpp
 Embedding: http://127.0.0.1:8081/v1
 ```
 
@@ -112,14 +112,14 @@ Embedding: http://127.0.0.1:8081/v1
 確認:
 
 ```powershell
-echo $env:LLM\\\\\\\_PROVIDER
-echo $env:LLAMA\\\\\\\_CPP\\\\\\\_BASE\\\\\\\_URL
+echo $env:LLM_PROVIDER
+echo $env:LLAMA_CPP_BASE_URL
 ```
 
 期待値:
 
 ```text
-llama\\\\\\\_cpp
+llama_cpp
 http://127.0.0.1:8080/v1
 ```
 
@@ -130,7 +130,7 @@ http://127.0.0.1:8080/v1
 確認:
 
 ```powershell
-echo $env:EMBEDDING\\\\\\\_BASE\\\\\\\_URL
+echo $env:EMBEDDING_BASE_URL
 ```
 
 期待値:
@@ -146,12 +146,12 @@ http://127.0.0.1:8081/v1
 デバッグ実行時に以下を確認してください。
 
 ```text
-\\\\\\\[TABLE\\\\\\\_TURN\\\\\\\_STATUS] 200 OK
+TABLE_TURN_STATUS] 200 OK
 ```
 
 表示されない場合、GMエンジンからLLMサーバーへの接続に失敗しています。
 
-\*\*\*
+---
 
 また README 冒頭は、GitHub向けなら次のようにするとかなり分かりやすくなります。
 
@@ -176,18 +176,18 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 通常利用に必要なのは以下の5ファイルです。
 
 ```text
-author\\\\\\\_scenario\\\\\\\_xxx.md
-md\\\\\\\_to\\\\\\\_scenario.py
-scenario\\\\\\\_lint.py
-run\\\\\\\_authoring\\\\\\\_pipeline.py
-fixed\\\\\\\_truth\\\\\\\_ai\\\\\\\_gm\\\\\\\_mvp.py
+author_scenario_xxx.md
+md_to_scenario.py
+scenario_lint.py
+run_authoring_pipeline.py
+fixed_truth_ai_gm_mvp.py
 ````
 
-\---
+---
 
 # ファイル構成
 
-## author\_scenario\_xxx.md
+## author_scenario_xxx.md
 
 シナリオ本体です。
 
@@ -195,27 +195,27 @@ fixed\\\\\\\_truth\\\\\\\_ai\\\\\\\_gm\\\\\\\_mvp.py
 
 \---
 
-## md\_to\_scenario.py
+## md_to_scenario.py
 
 Markdownから実行用データを生成します。
 
 入力:
 
 ```text
-author\\\\\\\_scenario\\\\\\\_xxx.md
+author_scenario_xxx.md
 ```
 
 出力:
 
 ```text
 scenario.json
-test\\\\\\\_expectations.json
-sample\\\\\\\_inputs\\\\\\\_\\\\\\\*.txt
+test_expectations.json
+sample_inputs_*.txt
 ```
 
-\---
+---
 
-## scenario\_lint.py
+## scenario_lint.py
 
 シナリオの整合性を検査します。
 
@@ -228,7 +228,7 @@ sample\\\\\\\_inputs\\\\\\\_\\\\\\\*.txt
 
 \---
 
-## run\_authoring\_pipeline.py
+## run_authoring_pipeline.py
 
 作者向けの一括検証ツールです。
 
@@ -246,22 +246,22 @@ Lint
 
 \---
 
-## fixed\_truth\_ai\_gm\_mvp.py
+## fixed_truth_ai_gm_mvp.py
 
 ゲーム本体です。
 
 プレイヤーとの会話を受け取り、シナリオの状態管理と LLM 描写を統合してセッションを進行します。
 
-\---
+---
 
 # クイックスタート
 
 ## 1\. シナリオ変換
 
 ```powershell
-python .\\\\\\\\md\\\\\\\_to\\\\\\\_scenario.py `
-  .\\\\\\\\author\\\\\\\_scenario\\\\\\\_lighthouse\\\\\\\_v2141.md `
-  .\\\\\\\\scenario\\\\\\\_lighthouse\\\\\\\\scenario.json
+python .\md_to_s*enario*py `
+.\author_scenario_lighthous*_v2150.md `
+.\scenario_lighthous*\scenario.json
 ```
 
 \---
@@ -269,8 +269,8 @@ python .\\\\\\\\md\\\\\\\_to\\\\\\\_scenario.py `
 ## 2\. シナリオ検査
 
 ```powershell
-python .\\\\\\\\scenario\\\\\\\_lint.py `
-  .\\\\\\\\scenario\\\\\\\_lighthouse\\\\\\\\scenario.json
+python .\scenario_lin*.py `
+  .\scenario_lighthouse\scen*rio.json
 ```
 
 期待結果:
@@ -284,21 +284,21 @@ Lint result: 0 errors, 0 warnings
 ## 3\. 自動テスト
 
 ```powershell
-python .\\\\\\\\run\\\\\\\_authoring\\\\\\\_pipeline.py `
-  .\\\\\\\\author\\\\\\\_scenario\\\\\\\_lighthouse\\\\\\\_v2141.md `
-  .\\\\\\\\scenario\\\\\\\_lighthouse `
-  --engine .\\\\\\\\fixed\\\\\\\_truth\\\\\\\_ai\\\\\\\_gm\\\\\\\_mvp.py
+python .\run_authoring_pipeline.py `
+ .\author_scenario_lighthouse_v2150.md `
+ .\scenario_lighthouse `
+ --engine .\fixed_truth_ai_gm_mvp.py
 ```
 
-\---
+---
 
-## 4\. プレイ開始
+## 4. プレイ開始
 
 ```powershell
-$env:DISCOVERY\\\\\\\_DISPLAY="gm"
+$env:DISCOVERY_DISPLAY="gm"
 
-python .\\\\\\\\fixed\\\\\\\_truth\\\\\\\_ai\\\\\\\_gm\\\\\\\_mvp.py `
-  --scenario-dir .\\\\\\\\scenario\\\\\\\_lighthouse
+python .\fixed_truth_ai_gm_mvp.py `
+  --scenario-dir .\scenario_lighthouse
 ```
 
 \---
@@ -311,13 +311,13 @@ NPCごとに、
 {
   "location": "tavern",
 
-  "knows": \\\\\\\[
-    "fisherman\\\\\\\_blue\\\\\\\_light"
+  "knows": [
+    "fisherman_blue_light"
   ],
 
   "topics": {
-    "青い光": \\\\\\\[
-      "fisherman\\\\\\\_blue\\\\\\\_light"
+    "青い光": [
+      "fisherman_blue_light"
     ]
   }
 }
@@ -354,9 +354,9 @@ NPCごとに、
 # シナリオ作成の流れ
 
 ```text
-author\\\\\\\_scenario\\\\\\\_xxx.md 編集
+author_scenario_xxx.md 編集
 ↓
-run\\\\\\\_authoring\\\\\\\_pipeline.py
+run_authoring_pipeline.py
 ↓
 手動プレイ
 ↓
