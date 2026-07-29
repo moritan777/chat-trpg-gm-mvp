@@ -1,4 +1,7 @@
 # Chat TTRPG GM MVP
+## Example Session
+<img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
+
 
 LLM を利用したチャット型 TTRPG GM エンジンです。
 
