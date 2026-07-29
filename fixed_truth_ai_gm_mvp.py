@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.10.2
+Chat-style TTRPG GM MVP v2.15.0
 
-v2.10.2 focus:
+Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
 - LLM banter: direct HTTP, observation-only packet
 - Embedding judge: direct HTTP, lexical fallback
@@ -1618,7 +1618,7 @@ def load_script(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--scenario-dir", default="scenario_tower_from_md_v274")
+    ap.add_argument("--scenario-dir", default="scenario_lighthouse")
     ap.add_argument("--script")
     ap.add_argument("--debug-judge", action="store_true")
     ap.add_argument("--debug-llm", action="store_true")
