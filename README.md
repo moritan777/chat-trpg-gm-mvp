@@ -64,7 +64,7 @@ LLM        : http://127.0.0.1:8080/v1
 Embedding  : http://127.0.0.1:8081/v1
 ```
 
-\*\*\*
+---
 
 ## 環境変数
 
@@ -95,7 +95,7 @@ $env:DISCOVERY_DISPLAY="gm"
 $env:DISCOVERY_DISPLAY="both"
 ```
 
-\*\*\*
+---
 
 ## 接続確認
 
@@ -106,7 +106,7 @@ LLM: 有効 provider=llama_cpp
 Embedding: http://127.0.0.1:8081/v1
 ```
 
-\*\*\*
+---
 
 ## トラブルシューティング
 
@@ -126,7 +126,7 @@ llama_cpp
 http://127.0.0.1:8080/v1
 ```
 
-\*\*\*
+---
 
 ### Embeddingが反応しない
 
@@ -142,7 +142,7 @@ echo $env:EMBEDDING_BASE_URL
 http://127.0.0.1:8081/v1
 ```
 
-\*\*\*
+---
 
 ### 仲間会話が出ない
 
@@ -156,24 +156,6 @@ TABLE_TURN_STATUS] 200 OK
 
 ---
 
-また README 冒頭は、GitHub向けなら次のようにするとかなり分かりやすくなります。
-
-```markdown
-# Chat TTRPG GM MVP
-
-LLM を利用したチャット型 TTRPG GM エンジンです。
-
-シナリオは Markdown で記述し、実行用の `scenario.json` に変換してプレイします。
-
-> ⚠️ OpenAI 互換 API を提供する LLM サーバーが必要です。
->
-> 動作確認環境:
->
-> - llama.cpp server
-> - ローカル Embedding Server
-> - Python 3.10+
-```
-
 # 必要ファイル
 
 通常利用に必要なのは以下の5ファイルです。
@@ -184,7 +166,7 @@ md_to_scenario.py
 scenario_lint.py
 run_authoring_pipeline.py
 fixed_truth_ai_gm_mvp.py
-````
+```
 
 ---
 
@@ -196,7 +178,7 @@ fixed_truth_ai_gm_mvp.py
 
 場所・NPC・オブジェクト・手掛かり・ゴール・テストケースを1つのMarkdownで管理します。
 
-\---
+---
 
 ## md_to_scenario.py
 
@@ -229,7 +211,7 @@ sample_inputs_*.txt
 * 存在しない discoverable
 * 不正な参照関係
 
-\---
+---
 
 ## run_authoring_pipeline.py
 
@@ -247,7 +229,7 @@ Lint
 期待結果チェック
 ```
 
-\---
+---
 
 ## fixed_truth_ai_gm_mvp.py
 
@@ -259,21 +241,21 @@ Lint
 
 # クイックスタート
 
-## 1\. シナリオ変換
+## 1. シナリオ変換
 
 ```powershell
-python .\md_to_s*enario*py `
-.\author_scenario_lighthous*_v2150.md `
-.\scenario_lighthous*\scenario.json
+python .\md_to_scenario.py `
+  .\author_scenario_lighthouse_v2150.md `
+  .\scenario_lighthouse\scenario.json
 ```
 
-\---
+---
 
-## 2\. シナリオ検査
+## 2. シナリオ検査
 
 ```powershell
-python .\scenario_lin*.py `
-  .\scenario_lighthouse\scen*rio.json
+python .\scenario_lint.py `
+  .\scenario_lighthouse\scenario.json
 ```
 
 期待結果:
@@ -282,15 +264,16 @@ python .\scenario_lin*.py `
 Lint result: 0 errors, 0 warnings
 ```
 
-\---
+---
 
-## 3\. 自動テスト
+## 3. 自動テスト
 
 ```powershell
 python .\run_authoring_pipeline.py `
- .\author_scenario_lighthouse_v2150.md `
- .\scenario_lighthouse `
- --engine .\fixed_truth_ai_gm_mvp.py
+  .\author_scenario_lighthouse_v2150.md `
+  .\scenario_lighthouse `
+  --engine .\fixed_truth_ai_gm_mvp.py `
+  --test-timeout 120
 ```
 
 ---
@@ -304,7 +287,7 @@ python .\fixed_truth_ai_gm_mvp.py `
   --scenario-dir .\scenario_lighthouse
 ```
 
-\---
+---
 
 # NPC知識システム
 
@@ -352,7 +335,16 @@ NPCごとに、
 知っている
 ```
 
-\---
+---
+
+# 調査対象のスコープ
+
+オブジェクトを調査するときは、現在地の `visible_objects` に含まれるものだけが候補になります。
+別の場所にある同名・同一 alias のオブジェクトが選ばれることはありません。
+
+NPCは従来どおり全体から対象を解決し、現在地にいない場合はシナリオに設定された所在地ヒントを案内します。
+
+---
 
 # シナリオ作成の流れ
 
@@ -368,7 +360,7 @@ run_authoring_pipeline.py
 公開
 ```
 
-\---
+---
 
 # 設計方針
 
@@ -401,8 +393,3 @@ NPC
 ```
 
 という設計思想を採用しています。
-
-```
-
-
-
