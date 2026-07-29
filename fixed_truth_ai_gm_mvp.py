@@ -558,6 +558,14 @@ class Game:
         text = self.llm_gm_commentary(packet, fallback)
         return text.splitlines(), {"status": "fail", "category": "surface_inspect"}, []
 
+    def visible_object_ids(self, st):
+        if st is None:
+            return set()
+        return set(self.locs.get(st.location, {}).get("visible_objects", []) or [])
+
+    def object_visible_here(self, object_id, st):
+        return object_id in self.objects and object_id in self.visible_object_ids(st)
+
     def target(self, raw, action_type="inspect", st=None):
         if action_type == "consult":
             return self.companion_target(raw)
@@ -566,10 +574,18 @@ class Game:
         alias_iter = getattr(self, "alias_entries", None)
         if alias_iter is None:
             alias_iter = list(getattr(self, "alias", {}).items())
+        object_scoped = st is not None and action_type in {"inspect", "skill_check"}
+        visible_objects = self.visible_object_ids(st) if object_scoped else set()
+        if self.debug and object_scoped:
+            print(f"[ObjectScope] location={st.location} visible={json.dumps(sorted(visible_objects), ensure_ascii=False)}")
         for alias, key in alias_iter:
             if not alias or alias not in raw:
                 continue
             kind = self.entity_kind(key)
+            if object_scoped and kind == "object" and key not in visible_objects:
+                if self.debug:
+                    print(f"[TargetRejected] target={key} reason=not_visible_at_current_location")
+                continue
             idx = raw.find(alias)
             score = len(alias)
             if st is not None:
@@ -636,6 +652,8 @@ class Game:
                 target_id = preliminary_target
             elif kind == "location":
                 action_type, mode = self.embedded_action_intent(raw, allowed=["area_search", "inspect", "move"])
+                if action_type == "inspect" and preliminary_target == st.location:
+                    action_type = "area_search"
                 target_id = None if action_type == "area_search" else preliminary_target
             elif kind == "surface":
                 # Scene-surface objects are descriptive objects, not goal targets.
@@ -860,6 +878,18 @@ class Game:
             return self.llm_gm_commentary(packet, fallback)
         fallback = "GM: うーん、今の行動だけでは特に新しいことは分からないね。"
         return self.llm_gm_commentary({"commentary_type": "no_reveal", "player_input": raw, "current_location": cur_name, "facts": ["新しい手がかりは出ない。"]}, fallback)
+
+    def object_not_present_response(self, it, st):
+        cur_name = self.locs.get(st.location, {}).get("name", "現在地")
+        packet = {
+            "commentary_type": "object_not_present",
+            "player_input": it.get("raw", ""),
+            "current_location": cur_name,
+            "facts": ["指定された対象は現在地で調査できない。", "対象の所在地は案内しない。", "新しい手がかりは出ない。"],
+            "style_goal": "対象がここでは見当たらないことだけを、簡潔なGM口調で伝える。別の場所や未発見情報は示さない。",
+        }
+        text = self.llm_gm_commentary(packet, "GM: ここでは、その対象は見当たらないようです。")
+        return text.splitlines(), {"status": "fail", "category": "object_not_present"}, []
 
 
     def retrieve(self, it, st):
@@ -1304,6 +1334,11 @@ class Game:
         notes, ev = [], []
         res = {"status": "ok", "category": "action"}
         target_id = it.get("target_id")
+        if target_id in self.objects and it.get("action_type") in {"inspect", "skill_check"}:
+            if not self.object_visible_here(target_id, st):
+                if self.debug:
+                    print(f"[TargetRejected] target={target_id} reason=not_visible_at_current_location")
+                return self.object_not_present_response(it, st)
         if target_id in self.npcs and it.get("action_type") in {"ask", "inspect", "skill_check"}:
             if not self.npc_present_here(target_id, st):
                 return self.npc_absent_notes(target_id, st), {"status": "fail", "category": "npc_absent"}, []
