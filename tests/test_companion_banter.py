@@ -160,8 +160,8 @@ class CompanionBanterTests(unittest.TestCase):
         user_packet = json.loads(captured[0][1]["messages"][1]["content"])
         self.assertIn("GMの発見結果を説明し直したり", prompt)
         self.assertIn("毎回原因や次の行動を推理したりする必要はない", prompt)
-        self.assertIn("直前の仲間発言へ反応してよい", prompt)
-        self.assertIn("内容上GMの説明を補足する必要はない", "".join(user_packet["instructions"]))
+        self.assertIn("先に話した仲間への反応を優先候補にできる", prompt)
+        self.assertIn("先行仲間への反応を優先候補にできる", "".join(user_packet["instructions"]))
         self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
 
@@ -203,7 +203,9 @@ class CompanionBanterTests(unittest.TestCase):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("事件解決だけでなく人物関係と卓の空気も作る", prompt)
-        self.assertIn("GM本文へ独立コメントを足す必要はなく", prompt)
+        self.assertIn("GM本文へ新しい感想を足すより", prompt)
+        self.assertIn("同じ発見へ全員が別コメントを出す必要もない", prompt)
+        self.assertIn("仲間同士で話題が成立したらGMの発見へ戻らなくてよい", prompt)
         self.assertIn("一人の発言で十分なら追加の仲間を出さず", prompt)
         self.assertIn("掛け合いは必須ではない", prompt)
         self.assertIn("0〜3人が自然なときだけ", prompt)

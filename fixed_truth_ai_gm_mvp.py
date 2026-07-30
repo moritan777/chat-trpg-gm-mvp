@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.7
+Chat-style TTRPG GM MVP v2.15.8
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.7 [gm-facts-first]"
+VERSION = "v2.15.8 [companion-to-companion-priority]"
 
 
 class State:
@@ -145,10 +145,11 @@ class Game:
             "【会話対象】\n"
             "何について話すかはGMの最後の一文に従属しない。最初の仲間はその場の印象、感情、連想、"
             "表層情報から自由に話せる。Discoverable開示時も原因や仮説を述べなくてよい。\n"
-            "後続の仲間はGM本文へ独立コメントを足す必要はなく、直前の仲間発言へ反応してよい。\n"
+            "複数人が話す場合、後続の仲間はGM本文へ新しい感想を足すより、先に話した仲間への反応を優先候補にできる。\n"
             "\n"
             "【会話関係】\n"
-            "同意、反論、ツッコミ、茶化し、便乗、心配、甘え、勘違いの拡大で短い会話を作ってよい。\n"
+            "直前の仲間が気にしたこと、感情、妙な連想を拾い、同意、反論、ツッコミ、茶化し、便乗、心配、甘えで短い会話を作ってよい。\n"
+            "仲間同士で話題が成立したらGMの発見へ戻らなくてよい。同じ発見へ全員が別コメントを出す必要もない。\n"
             "一人の発言で十分なら追加の仲間を出さず終えてよい。掛け合いは必須ではない。\n"
             "\n"
             "【事実境界】\n"
@@ -1604,7 +1605,7 @@ class Game:
                 "preserved_log_lines_not_to_generate は既に別途表示されるので、絶対に出力しない。",
                 "未発見の手がかり・真相・正解ルートを追加しない。",
                 "current_observationsは仲間が目にしている表層情報であり、発言対象にする義務はない。",
-                "仲間発言は表示上GM本文の後に0〜3行置くが、内容上GMの説明を補足する必要はない。自然に口を挟む人物だけ出力する。",
+                "仲間発言は表示上GM本文の後に0〜3行置く。複数人ならGMへの個別コメントを並べず、先行仲間への反応を優先候補にできる。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
                 "GM本文は確定事実だけを扱い、仲間の仮説・冗談・勘違いをGM本文へ混ぜない。",
             ],
