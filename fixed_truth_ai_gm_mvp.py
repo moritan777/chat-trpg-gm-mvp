@@ -922,6 +922,18 @@ class Game:
         text = self.llm_gm_commentary(packet, "GM: ここでは、その対象は見当たらないようです。")
         return text.splitlines(), {"status": "fail", "category": "object_not_present"}, []
 
+    def object_not_present_response(self, it, st):
+        cur_name = self.locs.get(st.location, {}).get("name", "現在地")
+        packet = {
+            "commentary_type": "object_not_present",
+            "player_input": it.get("raw", ""),
+            "current_location": cur_name,
+            "facts": ["指定された対象は現在地で調査できない。", "対象の所在地は案内しない。", "新しい手がかりは出ない。"],
+            "style_goal": "対象がここでは見当たらないことだけを、簡潔なGM口調で伝える。別の場所や未発見情報は示さない。",
+        }
+        text = self.llm_gm_commentary(packet, "GM: ここでは、その対象は見当たらないようです。")
+        return text.splitlines(), {"status": "fail", "category": "object_not_present"}, []
+
 
     def retrieve(self, it, st):
         out = []
@@ -1410,6 +1422,14 @@ class Game:
             if d.get("source", {}).get("id") == target_id:
                 return True
         return False
+
+    def public_revelations_for_target(self, target_id, ev):
+        observations = []
+        for did in self.event_revealed_discoverables(ev):
+            discoverable = self.disc.get(did, {})
+            if discoverable.get("source", {}).get("id") == target_id and discoverable.get("public_text"):
+                observations.append(discoverable["public_text"])
+        return observations
 
     def public_revelations_for_target(self, target_id, ev):
         observations = []
