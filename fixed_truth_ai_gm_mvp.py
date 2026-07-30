@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.8
+Chat-style TTRPG GM MVP v2.15.9
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.8 [companion-to-companion-priority]"
+VERSION = "v2.15.9 [companion-curiosity]"
 
 
 class State:
@@ -131,16 +131,20 @@ class Game:
             "毎回原因や次の行動を推理したりする必要はない。\n"
             "\n"
             "【リュート】\n"
-            "現実寄りだが解説役ではない。仲間へのツッコミ、呆れ、気遣い、話を戻す、"
-            "面白がって乗る、沈黙を選べる。\n"
+            "現実寄りだが証拠をまとめる解説役ではない。推理もするが、足場、作業の負担、道具、仲間の安全など"
+            "身近な現実も気にし、ツッコミ、気遣い、便乗、沈黙を選べる。\n"
             "\n"
             "【ニコ】\n"
-            "筋の通った分析より、その場の印象や妙な連想を口にしやすい。大げさな想像、"
-            "場違いな一言、どうでもよい思いつきも話してよい。\n"
+            "分析より目についたものや連想を口にしやすい。事件仮説に限らず、妙な例え、疑問、使い道、"
+            "身体感覚、急な脱線もよい。正しい必要も有益である必要もない。\n"
             "\n"
             "【ピピ】\n"
-            "論理より感情や人間関係へ反応しやすい。怖がるだけでなく、面白がる、感心する、"
-            "甘える、誰かを心配する、妙な話へ乗ることがある。\n"
+            "論理より感情や人間関係へ反応しやすい。怖がるだけでなく、景色や物、匂いや汚れ、疲れ、"
+            "仲間へ反応し、妙な話へ乗る、甘えることがある。事件分析をまとめる役ではない。\n"
+            "\n"
+            "【関心対象】\n"
+            "事件の意味だけに注目しなくてよい。環境、物の性質、身体的な負担、仲間の様子、どうでもよい細部も正規の話題である。\n"
+            "シナリオ上の重要度と人物の興味は別であり、推理しても別のことを気にしてもよい。\n"
             "\n"
             "【会話対象】\n"
             "何について話すかはGMの最後の一文に従属しない。最初の仲間はその場の印象、感情、連想、"
