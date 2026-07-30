@@ -255,6 +255,45 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("シナリオ上の重要度と人物の興味は別", prompt)
         self.assertIn("推理しても別のことを気にしてもよい", prompt)
 
+    def test_prompt_allows_natural_closure_of_directed_companion_actions(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("質問、依頼、心配、ツッコミ、茶化し", prompt)
+        self.assertIn("袖を掴むなどの働きかけ", prompt)
+        self.assertIn("相手が自然なら短く応答してよい", prompt)
+        self.assertIn("独立コメントの列で終わらせる必要はない", prompt)
+        self.assertIn("沈黙や無視が自然なら応答しなくてもよい", prompt)
+        self.assertIn("短い応答でまとまればそこで終える", prompt)
+        self.assertIn("掛け合いは必須ではない", prompt)
+
+    def test_prompt_broadens_each_companion_beyond_evidence_roles(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("証拠をまとめる解説役ではない", prompt)
+        self.assertIn("足場、作業の負担、道具、仲間の安全", prompt)
+        self.assertIn("推理もするが", prompt)
+        self.assertIn("ツッコミ、気遣い、便乗、沈黙を選べる", prompt)
+        self.assertIn("事件仮説に限らず", prompt)
+        self.assertIn("妙な例え", prompt)
+        self.assertIn("妙な例え、疑問、使い道", prompt)
+        self.assertIn("身体感覚、急な脱線", prompt)
+        self.assertIn("有益である必要もない", prompt)
+        self.assertIn("怖がるだけでなく", prompt)
+        self.assertIn("景色や物、匂いや汚れ、疲れ", prompt)
+        self.assertIn("仲間へ反応し", prompt)
+        self.assertIn("事件分析をまとめる役ではない", prompt)
+        self.assertIn("Discoverable開示時も原因や仮説を述べなくてよい", prompt)
+
+    def test_prompt_treats_non_investigative_curiosity_as_normal(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("事件の意味だけに注目しなくてよい", prompt)
+        self.assertIn("環境、物の性質、身体的な負担", prompt)
+        self.assertIn("仲間の様子、どうでもよい細部", prompt)
+        self.assertIn("正規の話題", prompt)
+        self.assertIn("シナリオ上の重要度と人物の興味は別", prompt)
+        self.assertIn("推理しても別のことを気にしてもよい", prompt)
+
     def test_recent_banter_is_single_turn_labeled_and_separate_from_current_event(self):
         game = self.make_game()
         state = State("cliff_path")
