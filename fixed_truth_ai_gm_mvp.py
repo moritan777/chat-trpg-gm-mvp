@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.4
+Chat-style TTRPG GM MVP v2.15.5
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.4 [companion-social-banter]"
+VERSION = "v2.15.5 [companion-visible-facts]"
 
 
 class State:
@@ -194,7 +194,7 @@ class Game:
         system_prompt = (
             "仲間キャラの短い発言だけを書く。GM文は禁止。"
             + self.companion_banter_prompt()
-            + "current_observationsは公開済みの事実境界。recent_companion_linesは参考用の過去会話で、現在の事実ではなくコピー禁止。"
+            + "current_observationsは目に見える表層情報。recent_companion_linesは参考用の過去会話で、現在の事実ではなくコピー禁止。"
         )
         body = {
             "model": self.llm_model(),
@@ -1466,46 +1466,33 @@ class Game:
                 observations.append(discoverable["public_text"])
         return observations
 
-    def safe_observation_for_target(self, target_id, it, ev, res=None):
-        """Return renderer-safe observations for the current target.
+    def companion_surface_observations(self, target_id):
+        """Return only pre-authored, visible material for companion context.
 
-        Select one public stage for companion context rather than stacking the
-        surface, revelation, and author-only banter descriptions. Canonical GM
-        text and discovery logs are built separately and are not reduced here.
+        Formal discoveries remain in the GM's canonical/discovery context. The
+        unified model can still read that context; this helper merely avoids
+        emphasizing the same conclusion again in the companion sub-packet.
         """
-        res = res or {}
-        out = []
         if target_id in self.objects:
             obj = self.objects[target_id]
-            if self.target_revealed_this_turn(target_id, ev):
-                out.extend(self.public_revelations_for_target(target_id, ev))
-            else:
-                surface = obj.get("surface_banter_observation") or obj.get("surface_text", "")
-                if surface:
-                    out.append(surface)
-            return list(dict.fromkeys(x for x in out if x))
+            surface = obj.get("surface_banter_observation") or obj.get("surface_text", "")
+            return [surface] if surface else []
         if target_id in self.npcs:
             npc = self.npcs[target_id]
-            if self.target_revealed_this_turn(target_id, ev):
-                out.extend(self.public_revelations_for_target(target_id, ev))
-            else:
-                if npc.get("surface_banter_observation"):
-                    out.append(npc["surface_banter_observation"])
-            return list(dict.fromkeys(x for x in out if x))
+            surface = npc.get("surface_banter_observation", "")
+            return [surface] if surface else []
+        if target_id in self.locs:
+            surface = self.locs[target_id].get("surface_banter_observation", "")
+            return [surface] if surface else []
         if isinstance(target_id, str) and target_id.startswith("surface:"):
             return ["これは正式な手がかり対象ではない。新しい情報を足さない。"]
         return []
 
     def packet(self, it, ev, st):
         target_id = it.get("target_id")
-        obs = []
-        obs.extend(self.safe_observation_for_target(target_id, it, ev, self.last_result if hasattr(self, "last_result") else None))
-        if it.get("target_id") in self.locs:
-            loc = self.locs[it.get("target_id")]
-            if loc.get("banter_observation"):
-                obs.append(loc.get("banter_observation", ""))
-        if not obs:
-            loc_obs = self.locs.get(st.location, {}).get("banter_observation", "")
+        obs = self.companion_surface_observations(target_id)
+        if not obs and target_id not in self.objects and target_id not in self.npcs and target_id not in self.locs:
+            loc_obs = self.locs.get(st.location, {}).get("surface_banter_observation", "")
             if loc_obs:
                 obs.append(loc_obs)
         previous = self.last_companion_turn
@@ -1612,7 +1599,7 @@ class Game:
                 "canonical_gm_textの意味と情報量を保ってGM口調に整える。",
                 "preserved_log_lines_not_to_generate は既に別途表示されるので、絶対に出力しない。",
                 "未発見の手がかり・真相・正解ルートを追加しない。",
-                "current_observationsは仲間が知ってよい公開知識であり、発言対象にする義務はない。",
+                "current_observationsは仲間が目にしている表層情報であり、発言対象にする義務はない。",
                 "仲間発言はGM発話の後に0〜3行。その場で自然に口を挟む人物だけとし、発言しない人物の行は出力しない。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
                 "GM本文は確定事実だけを扱い、仲間の仮説・冗談・勘違いをGM本文へ混ぜない。",
@@ -1631,9 +1618,10 @@ class Game:
             "packet.discovery_display が tag の場合、発見内容は別ログで表示されるので、GM発話では詳しく繰り返さず、場面の受け渡しだけにする。"
             "\n\n"
             "【surface/public分離】"
-            "safe_banter_packet.current_observationsは仲間が知ってよい公開知識であり、反応する命令ではない。"
+            "safe_banter_packet.current_observationsは表層情報であり、反応命令ではない。"
+            "正式な発見結果はGM用情報で、仲間は聞いてよいが要約・反復する義務はない。"
             "revealed_this_turnにないdiscoverableのpublic_text、内部用banter_observation、正解ルートは知らない。"
-            "仲間は公開情報から自由に想像してよいが、その想像を確定事実や攻略情報として述べない。"
+            "表層情報から自由に想像してよいが、その想像を確定事実や攻略情報として述べない。"
             "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move の場合、重要な手掛かりがあるふりをしない。軽い感想や雑談はよい。"
             "\n\n"
             "【GM口調】"

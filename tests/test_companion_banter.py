@@ -55,12 +55,12 @@ class CompanionBanterTests(unittest.TestCase):
         revealed_packet = game.packet(
             intent, [{"type": "discoverable_revealed", "id": "tide_log_cave_time"}], state
         )
-        self.assertIn(
+        self.assertNotIn(
             game.disc["tide_log_cave_time"]["public_text"],
             json.dumps(revealed_packet, ensure_ascii=False),
         )
 
-    def test_revealed_object_uses_public_text_as_single_companion_stage(self):
+    def test_revealed_object_still_uses_surface_companion_stage(self):
         game = self.make_game()
         state = State("light_room")
         intent = {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"}
@@ -69,8 +69,11 @@ class CompanionBanterTests(unittest.TestCase):
         packet = game.packet(intent, event, state)
         observations = packet["current_observations"]
 
-        self.assertEqual(observations, [game.disc["lens_misaligned"]["public_text"]])
-        self.assertNotIn(game.objects["lighthouse_lens"]["surface_text"], observations)
+        self.assertEqual(
+            observations,
+            [game.objects["lighthouse_lens"]["surface_banter_observation"]],
+        )
+        self.assertNotIn(game.disc["lens_misaligned"]["public_text"], observations)
         self.assertNotIn(game.objects["lighthouse_lens"]["banter_observation"], observations)
 
     def test_unrevealed_object_prefers_safe_surface_banter_observation(self):
@@ -86,6 +89,51 @@ class CompanionBanterTests(unittest.TestCase):
         )
         self.assertNotIn(game.objects["lighthouse_lens"]["surface_text"], observations)
         self.assertNotIn(game.objects["lighthouse_lens"]["banter_observation"], observations)
+
+    def test_object_surface_text_fallback_and_empty_surface(self):
+        game = self.make_game()
+        state = State("light_room")
+        obj = game.objects["lighthouse_lens"]
+        obj.pop("surface_banter_observation", None)
+
+        observations = game.packet(
+            {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"},
+            [{"type": "discoverable_revealed", "id": "lens_misaligned"}], state,
+        )["current_observations"]
+        self.assertEqual(observations, [obj["surface_text"]])
+
+        obj.pop("surface_text", None)
+        observations = game.packet(
+            {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"},
+            [{"type": "discoverable_revealed", "id": "lens_misaligned"}], state,
+        )["current_observations"]
+        self.assertEqual(observations, [])
+
+    def test_revealed_npc_does_not_promote_public_or_internal_text(self):
+        game = self.make_game()
+        state = State("harbor")
+        packet = game.packet(
+            {"raw": "漁師に聞く", "action_type": "ask", "target_id": "fisherman"},
+            [{"type": "discoverable_revealed", "id": "fisherman_blue_light"}], state,
+        )
+
+        self.assertEqual(packet["current_observations"], [])
+        serialized = json.dumps(packet, ensure_ascii=False)
+        self.assertNotIn(game.disc["fisherman_blue_light"]["public_text"], serialized)
+        self.assertNotIn(game.npcs["fisherman"]["banter_observation"], serialized)
+
+    def test_location_uses_safe_surface_observation(self):
+        game = self.make_game()
+        state = State("cliff_path")
+        packet = game.packet(
+            {"raw": "岬へ行く", "action_type": "move", "target_id": "cliff_path"}, [], state,
+        )
+
+        self.assertEqual(
+            packet["current_observations"],
+            [game.locs["cliff_path"]["surface_banter_observation"]],
+        )
+        self.assertNotIn(game.locs["cliff_path"]["banter_observation"], packet["current_observations"])
 
     def test_prompt_separates_factual_gm_from_free_companion_hypotheses(self):
         game = self.make_game()
@@ -234,7 +282,11 @@ class CompanionBanterTests(unittest.TestCase):
         sent = captured[0]
         self.assertEqual(sent["canonical_gm_text"], "GM: レンズを詳しく確認した。")
         self.assertEqual(sent["discovery_log_lines_for_context"], ["発見: " + public_text])
-        self.assertEqual(sent["safe_banter_packet"]["current_observations"], [public_text])
+        self.assertEqual(
+            sent["safe_banter_packet"]["current_observations"],
+            [game.objects["lighthouse_lens"]["surface_banter_observation"]],
+        )
+        self.assertNotIn(public_text, sent["safe_banter_packet"]["current_observations"])
 
     def test_invalid_unified_response_clears_history_without_second_llm_call(self):
         game = self.make_game()
