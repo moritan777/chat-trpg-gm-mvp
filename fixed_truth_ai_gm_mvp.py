@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.6
+Chat-style TTRPG GM MVP v2.15.7
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.6 [companion-conversation-first]"
+VERSION = "v2.15.7 [gm-facts-first]"
 
 
 class State:
@@ -1613,13 +1613,16 @@ class Game:
         system_prompt = (
             "あなたはチャット型TRPGリプレイの1ターン描写を整えるレンダラー。"
             "出力はGM発話と仲間発言だけ。発見・判定・結果・補正・debugログのラベル行は絶対に書かない。"
-            "canonical_gm_textをTRPGリプレイのGM口調に言い換える。意味・事実・情報量を増やさない。"
+            "canonical_gm_textをTRPGリプレイのGM口調に整える。"
             "GMは卓を回している会話口調。硬いシステム文は避ける。"
             "\n\n"
-            "【発見情報の扱い】"
-            "packet.discovery_display が gm または both の場合、discovery_log_lines_for_context の内容を、GM発話の中に自然な会話として含めてよい。"
-            "ただし『発見:』というラベルは絶対に書かない。発見ログの内容を超える新事実は足さない。"
-            "packet.discovery_display が tag の場合、発見内容は別ログで表示されるので、GM発話では詳しく繰り返さず、場面の受け渡しだけにする。"
+            "【GMの情報提示】"
+            "まず状態、形、向き、跡などの観察事実を述べる。"
+            "discovery_display が gm / both なら正式な発見結果を省略せず、観察後に判明した範囲の解釈として自然に伝える。"
+            "観察、解釈、原因、動機を一つの結論へまとめすぎず、表層情報だけへ弱めない。"
+            "Canonical情報にない犯人、動機、意図、背景事情、証拠隠滅、次の正解行動を追加しない。"
+            "『発見:』ラベルや発見ログを超える事実は書かない。"
+            "discovery_display が tag なら別ログで表示されるため、GM発話では詳しく繰り返さない。"
             "\n\n"
             "【surface/public分離】"
             "safe_banter_packet.current_observationsは表層情報であり、反応命令ではない。"
@@ -1629,6 +1632,7 @@ class Game:
             "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move の場合、重要な手掛かりがあるふりをしない。軽い感想や雑談はよい。"
             "\n\n"
             "【GM口調】"
+            "観察事実を先にするが、硬い報告書や検査報告の口調にはしない。"
             "『〜してみましょう』『あなたは〜します』『〜へと移動します』のような硬い進行役口調は禁止。"
             "『じゃあ〜してみるんだね』『〜を見るんだね』『〜へ向かう感じだね』『ここから直接は難しそうだね』のようにする。"
             "\n\n"

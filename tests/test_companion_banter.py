@@ -165,6 +165,32 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
 
+    def test_system_prompt_prioritizes_observation_without_weakening_discovery(self):
+        game = self.make_game()
+        state = State("light_room")
+        captured = []
+
+        def fake_post_json(url, body, timeout, tag):
+            captured.append(body)
+            return {"choices": [{"message": {"content": "GM: レンズを確認した。"}}]}
+
+        game.post_json = fake_post_json
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
+            game.render_table_turn(
+                ["GM: レンズを確認した。", "発見: " + game.disc["lens_misaligned"]["public_text"]],
+                {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"},
+                {"status": "ok", "category": "discoverable"},
+                [{"type": "discoverable_revealed", "id": "lens_misaligned"}], state,
+            )
+
+        prompt = captured[0]["messages"][0]["content"]
+        self.assertIn("観察事実を述べる", prompt)
+        self.assertIn("正式な発見結果を省略せず", prompt)
+        self.assertIn("観察後に判明した範囲の解釈", prompt)
+        self.assertIn("表層情報だけへ弱めない", prompt)
+        self.assertIn("犯人、動機、意図、背景事情、証拠隠滅、次の正解行動を追加しない", prompt)
+        self.assertIn("硬い報告書や検査報告の口調にはしない", prompt)
+
     def test_prompt_separates_fact_priority_from_conversation_focus(self):
         prompt = self.make_game().companion_banter_prompt()
 
@@ -287,6 +313,58 @@ class CompanionBanterTests(unittest.TestCase):
             [game.objects["lighthouse_lens"]["surface_banter_observation"]],
         )
         self.assertNotIn(public_text, sent["safe_banter_packet"]["current_observations"])
+
+    def test_gm_context_keeps_lens_and_valve_discoveries_for_gm_and_both(self):
+        cases = (
+            ("lighthouse_lens", "lens_misaligned", "レンズを見る"),
+            ("oil_valve", "oil_valve_tampered", "供給弁を見る"),
+        )
+        for display in ("gm", "both"):
+            for target_id, discoverable_id, raw in cases:
+                with self.subTest(display=display, target=target_id):
+                    game = self.make_game()
+                    state = State("light_room")
+                    public_text = game.disc[discoverable_id]["public_text"]
+                    captured = []
+                    game.post_json = lambda url, body, timeout, tag: (
+                        captured.append(json.loads(body["messages"][1]["content"]))
+                        or {"choices": [{"message": {"content": "GM: " + public_text}}]}
+                    )
+
+                    with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp", "DISCOVERY_DISPLAY": display}):
+                        game.render_table_turn(
+                            ["GM: 表層を確認した。", "発見: " + public_text],
+                            {"raw": raw, "action_type": "inspect", "target_id": target_id},
+                            {"status": "ok", "category": "discoverable"},
+                            [{"type": "discoverable_revealed", "id": discoverable_id}], state,
+                        )
+
+                    self.assertEqual(captured[0]["discovery_display"], display)
+                    self.assertEqual(captured[0]["discovery_log_lines_for_context"], ["発見: " + public_text])
+                    self.assertNotIn(public_text, captured[0]["safe_banter_packet"]["current_observations"])
+
+    def test_tag_display_retains_separate_discovery_context_without_gm_repetition_instruction(self):
+        game = self.make_game()
+        state = State("light_room")
+        public_text = game.disc["lens_misaligned"]["public_text"]
+        captured = []
+        game.post_json = lambda url, body, timeout, tag: (
+            captured.append(body) or {"choices": [{"message": {"content": "GM: レンズを確認した。"}}]}
+        )
+
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp", "DISCOVERY_DISPLAY": "tag"}):
+            game.render_table_turn(
+                ["GM: レンズを確認した。", "発見: " + public_text],
+                {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"},
+                {"status": "ok", "category": "discoverable"},
+                [{"type": "discoverable_revealed", "id": "lens_misaligned"}], state,
+            )
+
+        packet = json.loads(captured[0]["messages"][1]["content"])
+        prompt = captured[0]["messages"][0]["content"]
+        self.assertEqual(packet["discovery_log_lines_for_context"], ["発見: " + public_text])
+        self.assertIn("tag なら別ログで表示される", prompt)
+        self.assertIn("GM発話では詳しく繰り返さない", prompt)
 
     def test_invalid_unified_responses_clear_history_without_second_llm_call(self):
         for response in ("", "```invalid```", "GM: 弁を調べた。\n発見: 禁止ラベル"):
