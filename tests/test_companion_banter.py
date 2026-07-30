@@ -158,40 +158,40 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         prompt = captured[0][1]["messages"][0]["content"]
         user_packet = json.loads(captured[0][1]["messages"][1]["content"])
-        self.assertIn("手掛かりを分析しなくてもよい", prompt)
-        self.assertIn("現在の観察へ直接触れない連想", prompt)
-        self.assertIn("証拠分析を続けず少し付き合ってよい", prompt)
-        self.assertIn("正解行動を指示する攻略役にならない", prompt)
+        self.assertIn("GMの発見結果を説明し直したり", prompt)
+        self.assertIn("毎回原因や次の行動を推理したりする必要はない", prompt)
+        self.assertIn("直前の仲間発言へ反応してよい", prompt)
+        self.assertIn("内容上GMの説明を補足する必要はない", "".join(user_packet["instructions"]))
         self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
 
-    def test_prompt_prioritizes_current_scene_and_prevents_repetition(self):
+    def test_prompt_separates_fact_priority_from_conversation_focus(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("優先順は、現在のGM事実、今回の開示、現在の場所・対象・行動、同一ターンの先行発言、過去会話", prompt)
-        self.assertIn("そのまま再出力せず", prompt)
-        self.assertIn("同じ内容の言い換えも避け", prompt)
-        self.assertIn("現在の場面に合う新しい反応や発展", prompt)
-        self.assertIn("自然につながらないなら使用せず", prompt)
+        self.assertIn("事実としては現在のGM事実、今回の正式な開示", prompt)
+        self.assertIn("何について話すかはGMの最後の一文に従属しない", prompt)
+        self.assertIn("仲間の冗談、仮説、勘違い、過去会話は事実の根拠ではない", prompt)
+        self.assertIn("過去台詞をコピーまたは言い換え再出力しない", prompt)
 
     def test_prompt_encourages_dialogue_without_fixed_consensus(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("人物関係と卓の空気を作る発言も正規の仲間会話", prompt)
-        self.assertIn("事件解決に役立たなくてよい", prompt)
-        self.assertIn("全員が調査対象へ意見を言う必要はない", prompt)
-        self.assertIn("誰がどの会話役をしてもよい", prompt)
+        self.assertIn("事件解決だけでなく人物関係と卓の空気も作る", prompt)
+        self.assertIn("GM本文へ独立コメントを足す必要はなく", prompt)
+        self.assertIn("一人の発言で十分なら追加の仲間を出さず", prompt)
+        self.assertIn("掛け合いは必須ではない", prompt)
         self.assertIn("0〜3人が自然なときだけ", prompt)
 
     def test_prompt_broadens_each_companion_beyond_evidence_roles(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("事件の解説役ではない", prompt)
-        self.assertIn("何も言わないことがある", prompt)
-        self.assertIn("発言は事件の仮説でなくてよく", prompt)
-        self.assertIn("場違いな連想", prompt)
+        self.assertIn("現実寄りだが解説役ではない", prompt)
+        self.assertIn("沈黙を選べる", prompt)
+        self.assertIn("その場の印象や妙な連想", prompt)
+        self.assertIn("場違いな一言", prompt)
         self.assertIn("怖がるだけでなく", prompt)
-        self.assertIn("事件分析をまとめる役ではない", prompt)
+        self.assertIn("誰かを心配する", prompt)
+        self.assertIn("Discoverable開示時も原因や仮説を述べなくてよい", prompt)
 
     def test_recent_banter_is_single_turn_labeled_and_separate_from_current_event(self):
         game = self.make_game()
@@ -288,31 +288,33 @@ class CompanionBanterTests(unittest.TestCase):
         )
         self.assertNotIn(public_text, sent["safe_banter_packet"]["current_observations"])
 
-    def test_invalid_unified_response_clears_history_without_second_llm_call(self):
-        game = self.make_game()
-        state = State("light_room")
-        game.remember_companion_turn(
-            ["ニコ: 前回の台詞。"],
-            {"action_type": "inspect", "target_id": "lighthouse_lens"}, state,
-        )
-        calls = []
+    def test_invalid_unified_responses_clear_history_without_second_llm_call(self):
+        for response in ("", "```invalid```", "GM: 弁を調べた。\n発見: 禁止ラベル"):
+            with self.subTest(response=response):
+                game = self.make_game()
+                state = State("light_room")
+                game.remember_companion_turn(
+                    ["ニコ: 前回の台詞。"],
+                    {"action_type": "inspect", "target_id": "lighthouse_lens"}, state,
+                )
+                calls = []
 
-        def fake_post_json(url, body, timeout, tag):
-            calls.append(tag)
-            return {"choices": [{"message": {"content": ""}}]}
+                def fake_post_json(url, body, timeout, tag):
+                    calls.append(tag)
+                    return {"choices": [{"message": {"content": response}}]}
 
-        game.post_json = fake_post_json
-        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
-            notes, banter = game.render_table_turn(
-                ["GM: 弁を調べた。"],
-                {"raw": "供給弁を見る", "action_type": "inspect", "target_id": "oil_valve"},
-                {"status": "ok", "category": "no_reveal"}, [], state,
-            )
+                game.post_json = fake_post_json
+                with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
+                    notes, banter = game.render_table_turn(
+                        ["GM: 弁を調べた。"],
+                        {"raw": "供給弁を見る", "action_type": "inspect", "target_id": "oil_valve"},
+                        {"status": "ok", "category": "no_reveal"}, [], state,
+                    )
 
-        self.assertEqual(calls, ["TABLE_TURN"])
-        self.assertEqual(notes, ["GM: 弁を調べた。"])
-        self.assertEqual(banter, "")
-        self.assertEqual(game.last_companion_turn, {})
+                self.assertEqual(calls, ["TABLE_TURN"])
+                self.assertEqual(notes, ["GM: 弁を調べた。"])
+                self.assertEqual(banter, "")
+                self.assertEqual(game.last_companion_turn, {})
 
     def test_banter_generation_does_not_change_game_state(self):
         game = self.make_game()
