@@ -135,7 +135,9 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertEqual(packet["current_event"]["target_id"], "cliff_footprints")
         self.assertEqual(history["label"], "reference_only_past_turn")
         self.assertEqual(history["previous_scene"]["target"], "broken_lantern")
-        self.assertEqual(len(history["lines"]), 4)
+        # A new inspect target retains the previous scene metadata for
+        # diagnostics, but does not expose its wording to the model.
+        self.assertEqual(history["lines"], [])
         self.assertNotIn("ニコ: 一つ目。", history["lines"])
         self.assertNotIn("ニコ: 古い別ターン。", history["lines"])
         self.assertNotIn("リュート: 二つ目。", packet["current_observations"])
@@ -144,6 +146,61 @@ class CompanionBanterTests(unittest.TestCase):
 
         game.remember_companion_turn([], current_intent, state)
         self.assertEqual(game.recent_companion_lines(), [])
+
+    def test_table_renderer_reads_history_then_saves_current_response_once(self):
+        game = self.make_game()
+        state = State("light_room")
+        old_intent = {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"}
+        game.remember_companion_turn(["ニコ: 古いレンズの台詞。"], old_intent, state)
+        captured = []
+
+        def fake_post_json(url, body, timeout, tag):
+            captured.append(json.loads(body["messages"][1]["content"]))
+            self.assertEqual(game.last_companion_turn["context"]["target"], "lighthouse_lens")
+            return {"choices": [{"message": {"content": "GM: 弁を調べた。\nリュート: 少し休もうぜ。"}}]}
+
+        game.post_json = fake_post_json
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
+            game.render_table_turn(
+                ["GM: 弁を調べた。"],
+                {"raw": "供給弁を見る", "action_type": "inspect", "target_id": "oil_valve"},
+                {"status": "ok", "category": "no_reveal"}, [], state,
+            )
+
+        self.assertEqual(len(captured), 1)
+        safe = captured[0]["safe_banter_packet"]
+        self.assertEqual(safe["current_event"]["target_id"], "oil_valve")
+        self.assertEqual(safe["recent_companion_lines"]["previous_scene"]["target"], "lighthouse_lens")
+        self.assertEqual(safe["recent_companion_lines"]["lines"], [])
+        self.assertNotIn("古いレンズの台詞", json.dumps(safe["current_observations"], ensure_ascii=False))
+        self.assertEqual(game.last_companion_turn["context"]["target"], "oil_valve")
+        self.assertEqual(game.recent_companion_lines(), ["リュート: 少し休もうぜ。"])
+
+    def test_invalid_unified_response_clears_history_without_second_llm_call(self):
+        game = self.make_game()
+        state = State("light_room")
+        game.remember_companion_turn(
+            ["ニコ: 前回の台詞。"],
+            {"action_type": "inspect", "target_id": "lighthouse_lens"}, state,
+        )
+        calls = []
+
+        def fake_post_json(url, body, timeout, tag):
+            calls.append(tag)
+            return {"choices": [{"message": {"content": ""}}]}
+
+        game.post_json = fake_post_json
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
+            notes, banter = game.render_table_turn(
+                ["GM: 弁を調べた。"],
+                {"raw": "供給弁を見る", "action_type": "inspect", "target_id": "oil_valve"},
+                {"status": "ok", "category": "no_reveal"}, [], state,
+            )
+
+        self.assertEqual(calls, ["TABLE_TURN"])
+        self.assertEqual(notes, ["GM: 弁を調べた。"])
+        self.assertEqual(banter, "")
+        self.assertEqual(game.last_companion_turn, {})
 
     def test_banter_generation_does_not_change_game_state(self):
         game = self.make_game()

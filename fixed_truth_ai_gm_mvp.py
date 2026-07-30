@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.2
+Chat-style TTRPG GM MVP v2.15.3
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.2 [companion-dialogue-flow]"
+VERSION = "v2.15.3 [companion-dialogue-independence]"
 
 
 class State:
@@ -129,7 +129,7 @@ class Game:
             "仲間はGMの説明を補足する解説者ではなく、GMから独立した卓の参加者である。\n"
             "第一目的は正しい推理ではなく、それぞれの人格で卓の会話を作ること。\n"
             "事件解決に役立たない雑談、冗談、早とちり、勘違い、脱線をしてよい。\n"
-            "GMの説明を言い換えたり、全員で同じ証拠を分析したりしない。\n"
+            "GMの観察を要約・言い換えず、GMへ独立した感想を並べる必要はない。\n"
             "\n"
             "【リュート】\n"
             "現実寄りだが解説役ではない。変な発言にツッコんだり、"
@@ -144,16 +144,16 @@ class Game:
             "論理より感情で反応する。変な話を真面目に受け取ったり、"
             "さらに広げたり、怖がったり、面白がったりする。\n"
             "\n"
-            "【望ましい会話の型】\n"
-            "ニコ: 海坊主が運んだのかも。\n"
-            "リュート: 海坊主がロープを使うのかよ。\n"
-            "ピピ: 意外と器用なのかもしれないよ。\n"
-            "内容は真似せず、独立発言ではなく人物同士の反応関係だけを参考にする。\n"
+            "【会話関係】\n"
+            "後続の仲間は先行発言を聞き、必要なら一続きの短い会話にする。\n"
+            "全員が同じ意見へ収束せず、根拠の弱い推測、感情、脱線など誰がどの役をしてもよい。\n"
             "\n"
             "【事実境界】\n"
             "冗談や仮説は確定事実ではない。未公開情報や正解ルートを話さない。\n"
-            "過去台詞をコピーせず、現在の場面に合わなければ無視する。\n"
-            "0〜3人が自然に話し、毎回全員や毎回同じ役割にはしない。"
+            "優先順は、現在のGM事実、今回の開示、現在の場所・対象・行動、同一ターンの先行発言、過去会話。\n"
+            "過去台詞はそのまま再出力せず、同じ内容の言い換えも避け、現在の場面に合う新しい反応や発展だけに使う。\n"
+            "自然につながらないなら使用しない。正解行動を指示する攻略役にならない。\n"
+            "0〜3人が自然なときだけ話す。発言しない人物の行は出さず、毎回全員や毎回同じ役割にはしない。"
         )
 
     def recent_companion_lines(self, limit=4):
@@ -165,6 +165,9 @@ class Game:
             for line in lines
             if str(line).strip().startswith(("リュート", "ニコ", "ピピ"))
         ]
+        if not companion_lines:
+            self.last_companion_turn = {}
+            return
         self.last_companion_turn = {
             "lines": companion_lines[-4:],
             "context": {
@@ -173,6 +176,17 @@ class Game:
                 "action": it.get("action_type"),
             },
         }
+
+    def debug_companion_history(self, heading, history=None, action=None, reason=None):
+        if not (self.debug_llm or self.debug):
+            return
+        history = self.last_companion_turn if history is None else history
+        print(f"[{heading}]")
+        print("scene=" + json.dumps(history.get("context", {}), ensure_ascii=False, sort_keys=True))
+        print("lines=" + json.dumps(history.get("lines", []), ensure_ascii=False))
+        if action is not None:
+            print("action=" + action)
+            print("reason=" + (reason or ""))
 
     def llm_chat(self, packet):
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
@@ -191,6 +205,9 @@ class Game:
             "temperature": float(os.getenv("BANTER_TEMPERATURE", "0.75")),
             "max_tokens": int(os.getenv("BANTER_MAX_TOKENS", "140")),
         }
+        if self.debug_llm:
+            print("[BANTER_SYSTEM]\n" + system_prompt)
+            print("[BANTER_USER]\n" + body["messages"][1]["content"])
         base = self.llm_base_url()
         urls = [base + "/chat/completions"] if base.endswith("/v1") else [base + "/chat/completions", base + "/v1/chat/completions"]
         for url in urls:
@@ -1511,6 +1528,17 @@ class Game:
             loc_obs = self.locs.get(st.location, {}).get("banter_observation", "")
             if loc_obs:
                 obs.append(loc_obs)
+        previous = self.last_companion_turn
+        previous_context = previous.get("context", {})
+        # An inspect of a different object starts a distinct conversational scene.
+        # Do not put the previous object's wording in the model input where it can
+        # be mistaken for a response template.
+        include_history = not (
+            it.get("action_type") == "inspect"
+            and previous_context.get("target")
+            and previous_context.get("target") != target_id
+            and previous_context.get("action") != "move"
+        )
         return {
             "current_event": {
                 "player_input": it.get("raw", ""),
@@ -1522,8 +1550,8 @@ class Game:
             "current_observations": [x for x in obs if x],
             "recent_companion_lines": {
                 "label": "reference_only_past_turn",
-                "previous_scene": self.last_companion_turn.get("context", {}),
-                "lines": self.recent_companion_lines(),
+                "previous_scene": previous_context,
+                "lines": self.recent_companion_lines() if include_history else [],
                 "usage": "現在の場面に自然につながる場合だけ参考にする。コピーや言い換え再出力は禁止。",
             },
             "safety": [
@@ -1573,6 +1601,8 @@ class Game:
                 preserved_logs.append(line)
 
         safe_packet = self.packet(it, ev, st)
+        history_before = dict(self.last_companion_turn)
+        self.debug_companion_history("CompanionHistoryBefore", history_before)
         target_id = it.get("target_id")
         target_name = ""
         if target_id in self.objects:
@@ -1602,7 +1632,9 @@ class Game:
                 "canonical_gm_textの意味と情報量を保ってGM口調に整える。",
                 "preserved_log_lines_not_to_generate は既に別途表示されるので、絶対に出力しない。",
                 "未発見の手がかり・真相・正解ルートを追加しない。",
-                "仲間発言はGM発話の後に0〜3行。リュート、ニコ、ピピのうち自然な人数だけ。",
+                "仲間はGMと独立した人物で、GM本文を補足する義務はない。人物ごとの会話方針はcompanion_banter_prompt由来のSystem指示を優先する。",
+                "current_observationsは仲間が知ってよい公開知識であり、発言対象にする義務はない。",
+                "仲間発言はGM発話の後に0〜3行。その場で自然に口を挟む人物だけとし、発言しない人物の行は出力しない。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
                 "GM本文は確定事実だけを扱い、仲間の仮説・冗談・勘違いをGM本文へ混ぜない。",
             ],
@@ -1620,7 +1652,7 @@ class Game:
             "packet.discovery_display が tag の場合、発見内容は別ログで表示されるので、GM発話では詳しく繰り返さず、場面の受け渡しだけにする。"
             "\n\n"
             "【surface/public分離】"
-            "safe_banter_packet.current_observationsだけを公開済みの確定情報として扱う。"
+            "safe_banter_packet.current_observationsは仲間が知ってよい公開知識であり、反応する命令ではない。"
             "revealed_this_turnにないdiscoverableのpublic_text、内部用banter_observation、正解ルートは知らない。"
             "仲間は公開情報から自由に想像してよいが、その想像を確定事実や攻略情報として述べない。"
             "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move の場合、重要な手掛かりがあるふりをしない。軽い感想や雑談はよい。"
@@ -1630,6 +1662,7 @@ class Game:
             "『じゃあ〜してみるんだね』『〜を見るんだね』『〜へ向かう感じだね』『ここから直接は難しそうだね』のようにする。"
             "\n\n"
             "【仲間発言】"
+            "仲間はGMの補助説明員ではない。人物性の詳細は以下のcompanion_banter_promptを優先する。"
             + self.companion_banter_prompt()
             + "\n\n"
             "出力形式は、GM行と仲間行のみ。最初は必ず『GM:』で始める。JSON、箇条書き、コードブロックは禁止。"
@@ -1643,6 +1676,9 @@ class Game:
             "temperature": float(os.getenv("TABLE_TURN_TEMPERATURE", os.getenv("GM_LINE_REWRITE_TEMPERATURE", "0.7"))),
             "max_tokens": int(os.getenv("TABLE_TURN_MAX_TOKENS", "360")),
         }
+        if self.debug_llm:
+            print("[TABLE_TURN_SYSTEM]\n" + system_prompt)
+            print("[TABLE_TURN_USER]\n" + body["messages"][1]["content"])
 
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
             if hasattr(self, "rewrite_gm_notes"):
@@ -1660,17 +1696,23 @@ class Game:
                 out = out.strip()
                 break
             except Exception as e:
-                if self.debug:
+                if self.debug_llm or self.debug:
                     print("[TABLE_TURN_ERROR]", type(e).__name__, str(e))
 
         if not out or "```" in out or out.lstrip().startswith("{"):
             if hasattr(self, "rewrite_gm_notes"):
                 notes = self.rewrite_gm_notes(notes, it, res, ev, st)
-            return notes, self.banter(it, res, ev, st)
+            self.last_companion_turn = {}
+            self.debug_companion_history("CompanionHistoryAfter")
+            self.debug_companion_history("CompanionHistoryAction", action="clear", reason="table renderer returned empty or invalid output")
+            return notes, ""
         if "発見:" in out or "判定:" in out or "結果:" in out or "補正:" in out or "[" in out:
             if hasattr(self, "rewrite_gm_notes"):
                 notes = self.rewrite_gm_notes(notes, it, res, ev, st)
-            return notes, self.banter(it, res, ev, st)
+            self.last_companion_turn = {}
+            self.debug_companion_history("CompanionHistoryAfter")
+            self.debug_companion_history("CompanionHistoryAction", action="clear", reason="table renderer returned forbidden labels")
+            return notes, ""
         if not out.startswith("GM:"):
             out = "GM: " + out
         if self.debug:
@@ -1709,6 +1751,12 @@ class Game:
 
         self.last_table_turn = {"canonical_gm": canonical_gm, "output": out, "packet": packet}
         self.remember_companion_turn(companion_rendered, it, st)
+        self.debug_companion_history("CompanionHistoryAfter")
+        self.debug_companion_history(
+            "CompanionHistoryAction",
+            action="save" if companion_rendered else "clear",
+            reason="saved current response companion lines" if companion_rendered else "current response had no companion lines",
+        )
         return new_notes, ""
 
     def banter(self, it, res, ev, st):
