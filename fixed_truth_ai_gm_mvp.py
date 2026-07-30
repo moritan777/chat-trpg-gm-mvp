@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.10.2
+Chat-style TTRPG GM MVP v2.15.1
 
-v2.10.2 focus:
+Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
 - LLM banter: direct HTTP, observation-only packet
 - Embedding judge: direct HTTP, lexical fallback
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.0 [goal-intent-examples]"
+VERSION = "v2.15.1 [companion-table-banter]"
 
 
 class State:
@@ -122,16 +122,36 @@ class Game:
             return "未設定。標準ライブラリのみのフォールバックで動作します。"
         return "有効 provider=llama_cpp base_url=" + self.llm_base_url() + " model=" + self.llm_model() + " APIキーなし Proxy無効"
 
+    def companion_banter_prompt(self):
+        return (
+            "仲間は攻略情報を説明する補助AIではなく、同じ卓に参加するプレイヤーキャラクター。"
+            "GMが述べた観察をそのまま要約・言い換えず、発言するなら感情、疑問、連想、仮説、冗談、勘違い、または他の仲間への反応を加える。"
+            "根拠の弱い推測、早とちり、極端な想像、軽い脱線は許可するが、推測だと分かる話し方にし、世界の確定事実にはしない。"
+            "先に話した仲間への同意、反論、ツッコミ、便乗で短い掛け合いを作ってよい。"
+            "未公開情報や正解ルートを知っているように話さず、次の正解行動を指示する攻略役にならない。"
+            "0〜3人が自然なときだけ話す。毎回全員、毎回冗談、毎回同じ役回りにはしない。"
+            "リュートは現実寄り、ニコは連想が飛びやすい、ピピは感情や他人の話に乗ることがあるが、これは固定役ではなく傾向にすぎない。"
+        )
+
+    def recent_companion_lines(self, limit=4):
+        lines = []
+        for source in (
+            getattr(self, "last_table_turn", {}).get("output", ""),
+            getattr(self, "last_banter", {}).get("output", ""),
+        ):
+            for line in str(source).splitlines():
+                line = line.strip()
+                if line.startswith(("リュート", "ニコ", "ピピ")):
+                    lines.append(line)
+        return lines[-limit:]
+
     def llm_chat(self, packet):
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
             return ""
         system_prompt = (
-            "仲間キャラの短い反応だけを書く。GM文は禁止。"
-            "current_focus と event_observations だけに反応する。"
-            "発見文や判定結果を要約しない。"
-            "原因・真相・犯人・証拠・手順を断定しない。"
-            "『ただの〜じゃない』『ついに』などの推理めいた言い方を避ける。"
-            "リュート/ニコ/ピピを1〜3行。"
+            "仲間キャラの短い発言だけを書く。GM文は禁止。"
+            + self.companion_banter_prompt()
+            + "event_observationsは公開済みの事実境界であり、recent_companion_linesは過去の雑談であって世界の事実ではない。"
         )
         body = {
             "model": self.llm_model(),
@@ -139,8 +159,8 @@ class Game:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(packet, ensure_ascii=False)},
             ],
-            "temperature": float(os.getenv("BANTER_TEMPERATURE", "0.5")),
-            "max_tokens": int(os.getenv("BANTER_MAX_TOKENS", "80")),
+            "temperature": float(os.getenv("BANTER_TEMPERATURE", "0.75")),
+            "max_tokens": int(os.getenv("BANTER_MAX_TOKENS", "140")),
         }
         base = self.llm_base_url()
         urls = [base + "/chat/completions"] if base.endswith("/v1") else [base + "/chat/completions", base + "/v1/chat/completions"]
@@ -558,6 +578,14 @@ class Game:
         text = self.llm_gm_commentary(packet, fallback)
         return text.splitlines(), {"status": "fail", "category": "surface_inspect"}, []
 
+    def visible_object_ids(self, st):
+        if st is None:
+            return set()
+        return set(self.locs.get(st.location, {}).get("visible_objects", []) or [])
+
+    def object_visible_here(self, object_id, st):
+        return object_id in self.objects and object_id in self.visible_object_ids(st)
+
     def target(self, raw, action_type="inspect", st=None):
         if action_type == "consult":
             return self.companion_target(raw)
@@ -566,10 +594,18 @@ class Game:
         alias_iter = getattr(self, "alias_entries", None)
         if alias_iter is None:
             alias_iter = list(getattr(self, "alias", {}).items())
+        object_scoped = st is not None and action_type in {"inspect", "skill_check"}
+        visible_objects = self.visible_object_ids(st) if object_scoped else set()
+        if self.debug and object_scoped:
+            print(f"[ObjectScope] location={st.location} visible={json.dumps(sorted(visible_objects), ensure_ascii=False)}")
         for alias, key in alias_iter:
             if not alias or alias not in raw:
                 continue
             kind = self.entity_kind(key)
+            if object_scoped and kind == "object" and key not in visible_objects:
+                if self.debug:
+                    print(f"[TargetRejected] target={key} reason=not_visible_at_current_location")
+                continue
             idx = raw.find(alias)
             score = len(alias)
             if st is not None:
@@ -636,6 +672,8 @@ class Game:
                 target_id = preliminary_target
             elif kind == "location":
                 action_type, mode = self.embedded_action_intent(raw, allowed=["area_search", "inspect", "move"])
+                if action_type == "inspect" and preliminary_target == st.location:
+                    action_type = "area_search"
                 target_id = None if action_type == "area_search" else preliminary_target
             elif kind == "surface":
                 # Scene-surface objects are descriptive objects, not goal targets.
@@ -860,6 +898,18 @@ class Game:
             return self.llm_gm_commentary(packet, fallback)
         fallback = "GM: うーん、今の行動だけでは特に新しいことは分からないね。"
         return self.llm_gm_commentary({"commentary_type": "no_reveal", "player_input": raw, "current_location": cur_name, "facts": ["新しい手がかりは出ない。"]}, fallback)
+
+    def object_not_present_response(self, it, st):
+        cur_name = self.locs.get(st.location, {}).get("name", "現在地")
+        packet = {
+            "commentary_type": "object_not_present",
+            "player_input": it.get("raw", ""),
+            "current_location": cur_name,
+            "facts": ["指定された対象は現在地で調査できない。", "対象の所在地は案内しない。", "新しい手がかりは出ない。"],
+            "style_goal": "対象がここでは見当たらないことだけを、簡潔なGM口調で伝える。別の場所や未発見情報は示さない。",
+        }
+        text = self.llm_gm_commentary(packet, "GM: ここでは、その対象は見当たらないようです。")
+        return text.splitlines(), {"status": "fail", "category": "object_not_present"}, []
 
 
     def retrieve(self, it, st):
@@ -1304,6 +1354,11 @@ class Game:
         notes, ev = [], []
         res = {"status": "ok", "category": "action"}
         target_id = it.get("target_id")
+        if target_id in self.objects and it.get("action_type") in {"inspect", "skill_check"}:
+            if not self.object_visible_here(target_id, st):
+                if self.debug:
+                    print(f"[TargetRejected] target={target_id} reason=not_visible_at_current_location")
+                return self.object_not_present_response(it, st)
         if target_id in self.npcs and it.get("action_type") in {"ask", "inspect", "skill_check"}:
             if not self.npc_present_here(target_id, st):
                 return self.npc_absent_notes(target_id, st), {"status": "fail", "category": "npc_absent"}, []
@@ -1345,6 +1400,14 @@ class Game:
                 return True
         return False
 
+    def public_revelations_for_target(self, target_id, ev):
+        observations = []
+        for did in self.event_revealed_discoverables(ev):
+            discoverable = self.disc.get(did, {})
+            if discoverable.get("source", {}).get("id") == target_id and discoverable.get("public_text"):
+                observations.append(discoverable["public_text"])
+        return observations
+
     def safe_observation_for_target(self, target_id, it, ev, res=None):
         """Return renderer-safe observations for the current target.
 
@@ -1362,6 +1425,7 @@ class Game:
             if surface:
                 out.append(surface)
             if self.target_revealed_this_turn(target_id, ev):
+                out.extend(self.public_revelations_for_target(target_id, ev))
                 bo = obj.get("banter_observation", "")
                 if bo:
                     out.append(bo)
@@ -1373,11 +1437,13 @@ class Game:
             return [x for x in out if x]
         if target_id in self.npcs:
             npc = self.npcs[target_id]
-            # NPC banter observation is generally visible demeanor, but still keep caution on no_reveal.
-            bo = npc.get("banter_observation", "")
-            if bo:
-                out.append(bo)
-            if not self.target_revealed_this_turn(target_id, ev):
+            if self.target_revealed_this_turn(target_id, ev):
+                out.extend(self.public_revelations_for_target(target_id, ev))
+                if npc.get("banter_observation"):
+                    out.append(npc["banter_observation"])
+            else:
+                if npc.get("surface_banter_observation"):
+                    out.append(npc["surface_banter_observation"])
                 out.append("このNPCから未取得の証言や秘密を先取りしない。")
             return [x for x in out if x]
         if isinstance(target_id, str) and target_id.startswith("surface:"):
@@ -1401,9 +1467,11 @@ class Game:
             "action_type": it.get("action_type"),
             "event_observations": [x for x in obs if x],
             "revealed_this_turn": sorted(self.event_revealed_discoverables(ev)),
+            "recent_companion_lines": self.recent_companion_lines(),
             "safety": [
-                "event_observationsに含まれない未発見の手がかりを言わない。",
-                "blocked/no_reveal時はsurface_text以上の推理や内部メモを足さない。",
+                "event_observationsにない情報を、知っている事実として言わない。",
+                "仮説や冗談は許可するが、未発見情報や正解を根拠として使わず、確定させない。",
+                "recent_companion_linesは会話継続用であり、世界設定や発見済み情報として扱わない。",
             ],
         }
 
@@ -1478,6 +1546,7 @@ class Game:
                 "未発見の手がかり・真相・正解ルートを追加しない。",
                 "仲間発言はGM発話の後に0〜3行。リュート、ニコ、ピピのうち自然な人数だけ。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
+                "GM本文は確定事実だけを扱い、仲間の仮説・冗談・勘違いをGM本文へ混ぜない。",
             ],
         }
 
@@ -1493,18 +1562,18 @@ class Game:
             "packet.discovery_display が tag の場合、発見内容は別ログで表示されるので、GM発話では詳しく繰り返さず、場面の受け渡しだけにする。"
             "\n\n"
             "【surface/public分離】"
-            "safe_banter_packet.event_observationsに含まれる内容だけが安全に反応してよい情報。"
-            "safe_banter_packet.safetyを最優先する。revealed_this_turnに含まれないdiscoverableのpublic_textや、objects[].banter_observation相当の隠れた意味を推測しない。"
-            "result_category が no_reveal / surface_inspect / npc_absent / move の場合、仲間は新しい事実を足さず、感想・戸惑い・次の行動相談程度に留める。"
+            "safe_banter_packet.event_observationsだけを公開済みの確定情報として扱う。"
+            "revealed_this_turnにないdiscoverableのpublic_text、内部用banter_observation、正解ルートは知らない。"
+            "仲間は公開情報から自由に想像してよいが、その想像を確定事実や攻略情報として述べない。"
+            "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move の場合、重要な手掛かりがあるふりをしない。軽い感想や雑談はよい。"
             "\n\n"
             "【GM口調】"
             "『〜してみましょう』『あなたは〜します』『〜へと移動します』のような硬い進行役口調は禁止。"
             "『じゃあ〜してみるんだね』『〜を見るんだね』『〜へ向かう感じだね』『ここから直接は難しそうだね』のようにする。"
             "\n\n"
             "【仲間発言】"
-            "仲間発言は0〜3行。雰囲気、驚き、感想、軽い疑問、警戒、冗談程度に留める。"
-            "未発見の手がかり、真相、犯人、因果関係、正解ルート、隠れた意味を断定しない。"
-            "『〜と重なっている』『〜を示している』『〜に違いない』『つまり〜』のような解析・推理の断定は禁止。"
+            + self.companion_banter_prompt()
+            + "safe_banter_packet.recent_companion_linesは直近の卓内雑談。必要なら蒸し返してよいが、事実の根拠にはしない。"
             "\n\n"
             "出力形式は、GM行と仲間行のみ。最初は必ず『GM:』で始める。JSON、箇条書き、コードブロックは禁止。"
         )
@@ -1514,7 +1583,7 @@ class Game:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(packet, ensure_ascii=False)},
             ],
-            "temperature": float(os.getenv("TABLE_TURN_TEMPERATURE", os.getenv("GM_LINE_REWRITE_TEMPERATURE", "0.45"))),
+            "temperature": float(os.getenv("TABLE_TURN_TEMPERATURE", os.getenv("GM_LINE_REWRITE_TEMPERATURE", "0.7"))),
             "max_tokens": int(os.getenv("TABLE_TURN_MAX_TOKENS", "360")),
         }
 
@@ -1618,7 +1687,7 @@ def load_script(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--scenario-dir", default="scenario_tower_from_md_v274")
+    ap.add_argument("--scenario-dir", default="scenario_lighthouse")
     ap.add_argument("--script")
     ap.add_argument("--debug-judge", action="store_true")
     ap.add_argument("--debug-llm", action="store_true")
