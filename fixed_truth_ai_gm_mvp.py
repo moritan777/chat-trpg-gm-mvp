@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.10
+Chat-style TTRPG GM MVP v2.15.11
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.10 [companion-response-closure]"
+VERSION = "v2.15.11 [official-discovery-lines]"
 
 
 class State:
@@ -146,12 +146,10 @@ class Game:
             "事件の意味だけに注目しなくてよい。環境、物の性質、身体的な負担、仲間の様子、どうでもよい細部も正規の話題である。\n"
             "シナリオ上の重要度と人物の興味は別であり、推理しても別のことを気にしてもよい。\n"
             "\n"
-            "【会話対象】\n"
+            "【仲間会話】\n"
             "何について話すかはGMの最後の一文に従属しない。最初の仲間はその場の印象、感情、連想、"
             "表層情報から自由に話せる。Discoverable開示時も原因や仮説を述べなくてよい。\n"
-            "複数人なら、GMへの別コメントより先行仲間への反応を優先候補にできる。\n"
-            "\n"
-            "【会話関係】\n"
+            "複数行なら、GMへの別コメントより先行仲間への反応を優先候補にできる。"
             "仲間への質問、依頼、心配、ツッコミ、茶化し、袖を掴むなどの働きかけには、相手が自然なら短く応答してよい。\n"
             "返答が自然な働きかけを独立コメントの列で終わらせる必要はないが、沈黙や無視が自然なら応答しなくてもよい。\n"
             "短い応答でまとまればそこで終える。仲間同士の話題からGMへ戻る必要も、同じ発見へ全員が別コメントを出す必要もない。掛け合いは必須ではない。\n"
@@ -161,8 +159,8 @@ class Game:
             "仲間の冗談、仮説、勘違い、過去会話は事実の根拠ではない。未公開情報や正解行動を知ったように話さない。\n"
             "\n"
             "【履歴と人数】\n"
-            "過去台詞をコピーまたは言い換え再出力しない。0〜3人が自然なときだけ話し、発言しない人物の行は出さない。\n"
-            "毎回全員、毎回推理、毎回冗談、毎回同じ役割にはしない。"
+            "過去台詞をコピーまたは言い換え再出力しない。仲間発言は0〜3行で、必要な人物だけ話す。\n"
+            "一人一行とは限らず、同じ人物が短い再応答で再び話してよい。全員を一度ずつ出す必要はなく、3行を埋めなくてよい。"
         )
 
     def recent_companion_lines(self, limit=4):
@@ -1475,6 +1473,21 @@ class Game:
                 observations.append(discoverable["public_text"])
         return observations
 
+    def official_discovery_texts(self, ev):
+        """Return authored public_text for this turn's reveal events, in event order."""
+        texts = []
+        for event in ev or []:
+            if not isinstance(event, dict) or event.get("type") != "discoverable_revealed":
+                continue
+            public_text = self.disc.get(event.get("id"), {}).get("public_text")
+            if isinstance(public_text, str) and public_text.strip():
+                texts.append(public_text.strip())
+        return texts
+
+    def official_discovery_gm_lines(self, ev):
+        """Add only the GM prefix; do not rewrite authored discovery content."""
+        return [text if text.startswith("GM:") else "GM: " + text for text in self.official_discovery_texts(ev)]
+
     def companion_surface_observations(self, target_id):
         """Return only pre-authored, visible material for companion context.
 
@@ -1565,6 +1578,23 @@ class Game:
         discovery_display = os.getenv("DISCOVERY_DISPLAY", "gm").strip().lower()
         if discovery_display not in {"gm", "tag", "both"}:
             discovery_display = "gm"
+        official_gm_lines = self.official_discovery_gm_lines(ev)
+
+        def fallback_notes_with_official_discoveries(current_notes):
+            fallback = list(current_notes)
+            if discovery_display == "gm":
+                fallback = [
+                    line for line in fallback
+                    if not (isinstance(line, str) and line.startswith("発見:"))
+                ]
+            if discovery_display in {"gm", "both"} and official_gm_lines:
+                gm_positions = [
+                    index for index, line in enumerate(fallback)
+                    if isinstance(line, str) and line.startswith("GM:")
+                ]
+                insert_at = (gm_positions[-1] + 1) if gm_positions else 0
+                fallback[insert_at:insert_at] = official_gm_lines
+            return fallback
 
         non_gm_logs = [line for line in notes if not (isinstance(line, str) and line.startswith("GM:"))]
         discovery_logs = [line for line in non_gm_logs if isinstance(line, str) and line.startswith("発見:")]
@@ -1609,7 +1639,7 @@ class Game:
                 "preserved_log_lines_not_to_generate は既に別途表示されるので、絶対に出力しない。",
                 "未発見の手がかり・真相・正解ルートを追加しない。",
                 "current_observationsは仲間が目にしている表層情報であり、発言対象にする義務はない。",
-                "仲間発言はGM本文の後に0〜3行。複数人なら独立コメントを並べるより、質問・依頼・非言語の働きかけへの短い応答を優先候補にできる。",
+                "仲間発言は0〜3行。必要な人物だけ話し、同じ人物が短く再応答してよい。全員を一度ずつ出す必要はない。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
                 "GM本文は確定事実だけを扱い、仲間の仮説・冗談・勘違いをGM本文へ混ぜない。",
             ],
@@ -1623,11 +1653,10 @@ class Game:
             "\n\n"
             "【GMの情報提示】"
             "まず状態、形、向き、跡などの観察事実を述べる。"
-            "discovery_display が gm / both で discovery_log_lines_for_context が空でなければ、その意味を観察後の正式な解釈としてGM本文へ必ず含め、表層状態だけで終えない。"
-            "観察、解釈、原因、動機を一つの結論へまとめすぎず、表層情報だけへ弱めない。"
+            "正式発見はエンジンが後続のGM行として原文表示するため、LLMのGM本文では詳しく反復しない。"
+            "canonical_gm_textに沿って行動、観察可能な状態、場面の受け渡しを自然に描写する。"
             "Canonical情報にない犯人、動機、意図、背景事情、証拠隠滅、次の正解行動を追加しない。"
-            "『発見:』ラベルや発見ログを超える事実は書かない。"
-            "discovery_display が tag なら別ログで表示されるため、GM発話では詳しく繰り返さない。"
+            "discovery_log_lines_for_contextはエンジンが別表示する正式発見で、仲間は聞いてよいが説明し直す義務はない。"
             "\n\n"
             "【surface/public分離】"
             "safe_banter_packet.current_observationsは表層情報であり、反応命令ではない。"
@@ -1662,7 +1691,8 @@ class Game:
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
             if hasattr(self, "rewrite_gm_notes"):
                 notes = self.rewrite_gm_notes(notes, it, res, ev, st)
-            return notes, self.banter(it, res, ev, st)
+            self.last_companion_turn = {}
+            return fallback_notes_with_official_discoveries(notes), ""
 
         base = self.llm_base_url()
         urls = [base + "/chat/completions"] if base.endswith("/v1") else [base + "/chat/completions", base + "/v1/chat/completions"]
@@ -1684,14 +1714,14 @@ class Game:
             self.last_companion_turn = {}
             self.debug_companion_history("CompanionHistoryAfter")
             self.debug_companion_history("CompanionHistoryAction", action="clear", reason="table renderer returned empty or invalid output")
-            return notes, ""
+            return fallback_notes_with_official_discoveries(notes), ""
         if "発見:" in out or "判定:" in out or "結果:" in out or "補正:" in out or "[" in out:
             if hasattr(self, "rewrite_gm_notes"):
                 notes = self.rewrite_gm_notes(notes, it, res, ev, st)
             self.last_companion_turn = {}
             self.debug_companion_history("CompanionHistoryAfter")
             self.debug_companion_history("CompanionHistoryAction", action="clear", reason="table renderer returned forbidden labels")
-            return notes, ""
+            return fallback_notes_with_official_discoveries(notes), ""
         if not out.startswith("GM:"):
             out = "GM: " + out
         if self.debug:
@@ -1719,6 +1749,9 @@ class Game:
             new_notes = [line for line in new_notes if not (isinstance(line, str) and line.startswith("発見:"))]
 
         insert_at = first + len(gm_rendered)
+        if discovery_display in {"gm", "both"} and official_gm_lines:
+            new_notes[insert_at:insert_at] = official_gm_lines
+            insert_at += len(official_gm_lines)
         while insert_at < len(new_notes):
             line = new_notes[insert_at]
             if isinstance(line, str) and line.startswith(("発見:", "判定:", "結果:", "補正:", "[")):

@@ -161,7 +161,10 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("GMの発見結果を説明し直したり", prompt)
         self.assertIn("毎回原因や次の行動を推理したりする必要はない", prompt)
         self.assertIn("先行仲間への反応を優先候補にできる", prompt)
-        self.assertIn("働きかけへの短い応答を優先候補にできる", "".join(user_packet["instructions"]))
+        instructions = "".join(user_packet["instructions"])
+        self.assertIn("仲間発言は0〜3行", instructions)
+        self.assertIn("同じ人物が短く再応答してよい", instructions)
+        self.assertIn("全員を一度ずつ出す必要はない", instructions)
         self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
 
@@ -185,9 +188,9 @@ class CompanionBanterTests(unittest.TestCase):
 
         prompt = captured[0]["messages"][0]["content"]
         self.assertIn("観察事実を述べる", prompt)
-        self.assertIn("その意味を観察後の正式な解釈としてGM本文へ必ず含め", prompt)
-        self.assertIn("表層状態だけで終えない", prompt)
-        self.assertIn("表層情報だけへ弱めない", prompt)
+        self.assertIn("正式発見はエンジンが後続のGM行として原文表示", prompt)
+        self.assertIn("LLMのGM本文では詳しく反復しない", prompt)
+        self.assertIn("canonical_gm_textに沿って", prompt)
         self.assertIn("犯人、動機、意図、背景事情、証拠隠滅、次の正解行動を追加しない", prompt)
         self.assertIn("硬い報告書や検査報告の口調にはしない", prompt)
 
@@ -208,7 +211,49 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("仲間同士の話題からGMへ戻る必要", prompt)
         self.assertIn("短い応答でまとまればそこで終える", prompt)
         self.assertIn("掛け合いは必須ではない", prompt)
-        self.assertIn("0〜3人が自然なときだけ", prompt)
+        self.assertIn("仲間発言は0〜3行", prompt)
+        self.assertIn("同じ人物が短い再応答で再び話してよい", prompt)
+        self.assertIn("全員を一度ずつ出す必要はなく", prompt)
+        self.assertNotIn("0〜3人", prompt)
+
+    def test_prompt_allows_natural_closure_of_directed_companion_actions(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("質問、依頼、心配、ツッコミ、茶化し", prompt)
+        self.assertIn("袖を掴むなどの働きかけ", prompt)
+        self.assertIn("相手が自然なら短く応答してよい", prompt)
+        self.assertIn("独立コメントの列で終わらせる必要はない", prompt)
+        self.assertIn("沈黙や無視が自然なら応答しなくてもよい", prompt)
+        self.assertIn("短い応答でまとまればそこで終える", prompt)
+        self.assertIn("掛け合いは必須ではない", prompt)
+
+    def test_prompt_broadens_each_companion_beyond_evidence_roles(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("証拠をまとめる解説役ではない", prompt)
+        self.assertIn("足場、作業の負担、道具、仲間の安全", prompt)
+        self.assertIn("推理もするが", prompt)
+        self.assertIn("ツッコミ、気遣い、便乗、沈黙を選べる", prompt)
+        self.assertIn("事件仮説に限らず", prompt)
+        self.assertIn("妙な例え", prompt)
+        self.assertIn("妙な例え、疑問、使い道", prompt)
+        self.assertIn("身体感覚、急な脱線", prompt)
+        self.assertIn("有益である必要もない", prompt)
+        self.assertIn("怖がるだけでなく", prompt)
+        self.assertIn("景色や物、匂いや汚れ、疲れ", prompt)
+        self.assertIn("仲間へ反応し", prompt)
+        self.assertIn("事件分析をまとめる役ではない", prompt)
+        self.assertIn("Discoverable開示時も原因や仮説を述べなくてよい", prompt)
+
+    def test_prompt_treats_non_investigative_curiosity_as_normal(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("事件の意味だけに注目しなくてよい", prompt)
+        self.assertIn("環境、物の性質、身体的な負担", prompt)
+        self.assertIn("仲間の様子、どうでもよい細部", prompt)
+        self.assertIn("正規の話題", prompt)
+        self.assertIn("シナリオ上の重要度と人物の興味は別", prompt)
+        self.assertIn("推理しても別のことを気にしてもよい", prompt)
 
     def test_prompt_allows_natural_closure_of_directed_companion_actions(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -362,11 +407,11 @@ class CompanionBanterTests(unittest.TestCase):
                     captured = []
                     game.post_json = lambda url, body, timeout, tag: (
                         captured.append(json.loads(body["messages"][1]["content"]))
-                        or {"choices": [{"message": {"content": "GM: " + public_text}}]}
+                        or {"choices": [{"message": {"content": "GM: 表層描写。\nニコ: 気になるね。"}}]}
                     )
 
                     with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp", "DISCOVERY_DISPLAY": display}):
-                        game.render_table_turn(
+                        rendered, _ = game.render_table_turn(
                             ["GM: 表層を確認した。", "発見: " + public_text],
                             {"raw": raw, "action_type": "inspect", "target_id": target_id},
                             {"status": "ok", "category": "discoverable"},
@@ -376,6 +421,14 @@ class CompanionBanterTests(unittest.TestCase):
                     self.assertEqual(captured[0]["discovery_display"], display)
                     self.assertEqual(captured[0]["discovery_log_lines_for_context"], ["発見: " + public_text])
                     self.assertNotIn(public_text, captured[0]["safe_banter_packet"]["current_observations"])
+                    official_line = "GM: " + public_text
+                    self.assertIn(official_line, rendered)
+                    self.assertLess(rendered.index("GM: 表層描写。"), rendered.index(official_line))
+                    self.assertLess(rendered.index(official_line), rendered.index("ニコ: 気になるね。"))
+                    if display == "gm":
+                        self.assertNotIn("発見: " + public_text, rendered)
+                    else:
+                        self.assertIn("発見: " + public_text, rendered)
 
     def test_tag_display_retains_separate_discovery_context_without_gm_repetition_instruction(self):
         game = self.make_game()
@@ -387,7 +440,7 @@ class CompanionBanterTests(unittest.TestCase):
         )
 
         with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp", "DISCOVERY_DISPLAY": "tag"}):
-            game.render_table_turn(
+            rendered, _ = game.render_table_turn(
                 ["GM: レンズを確認した。", "発見: " + public_text],
                 {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"},
                 {"status": "ok", "category": "discoverable"},
@@ -397,8 +450,59 @@ class CompanionBanterTests(unittest.TestCase):
         packet = json.loads(captured[0]["messages"][1]["content"])
         prompt = captured[0]["messages"][0]["content"]
         self.assertEqual(packet["discovery_log_lines_for_context"], ["発見: " + public_text])
-        self.assertIn("tag なら別ログで表示される", prompt)
-        self.assertIn("GM発話では詳しく繰り返さない", prompt)
+        self.assertIn("エンジンが別表示する正式発見", prompt)
+        self.assertEqual(rendered, ["GM: レンズを確認した。", "発見: " + public_text])
+        self.assertNotIn("GM: " + public_text, rendered)
+
+    def test_official_discoveries_use_structured_events_and_avoid_double_prefix(self):
+        game = self.make_game()
+        events = [
+            {"type": "discoverable_revealed", "id": "lens_misaligned"},
+            {"type": "ignored", "id": "oil_valve_tampered"},
+        ]
+        public_text = game.disc["lens_misaligned"]["public_text"]
+
+        self.assertEqual(game.official_discovery_texts(events), [public_text])
+        self.assertEqual(game.official_discovery_gm_lines(events), ["GM: " + public_text])
+
+        game.disc["lens_misaligned"]["public_text"] = "GM: 既に接頭辞がある。"
+        self.assertEqual(game.official_discovery_gm_lines(events), ["GM: 既に接頭辞がある。"])
+
+    def test_invalid_renderer_still_places_official_discovery_once(self):
+        for response in ("", "```invalid```", "GM: 観察。\n発見: 禁止ラベル"):
+            with self.subTest(response=response):
+                game = self.make_game()
+                state = State("light_room")
+                public_text = game.disc["lens_misaligned"]["public_text"]
+                calls = []
+                game.post_json = lambda url, body, timeout, tag: (
+                    calls.append(tag) or {"choices": [{"message": {"content": response}}]}
+                )
+
+                with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp", "DISCOVERY_DISPLAY": "gm"}):
+                    rendered, banter = game.render_table_turn(
+                        ["GM: レンズを確認した。", "発見: " + public_text],
+                        {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"},
+                        {"status": "ok", "category": "discoverable"},
+                        [{"type": "discoverable_revealed", "id": "lens_misaligned"}], state,
+                    )
+
+                self.assertEqual(calls, ["TABLE_TURN"])
+                self.assertEqual(rendered, ["GM: レンズを確認した。", "GM: " + public_text])
+                self.assertEqual(banter, "")
+                self.assertEqual(game.last_companion_turn, {})
+
+    def test_companion_history_preserves_repeated_speaker_order(self):
+        game = self.make_game()
+        state = State("light_room")
+        lines = ["ニコ: 一言目。", "ピピ: 返答。", "ニコ: 再応答。"]
+        game.remember_companion_turn(
+            lines,
+            {"raw": "レンズを見る", "action_type": "inspect", "target_id": "lighthouse_lens"},
+            state,
+        )
+
+        self.assertEqual(game.recent_companion_lines(), lines)
 
     def test_invalid_unified_responses_clear_history_without_second_llm_call(self):
         for response in ("", "```invalid```", "GM: 弁を調べた。\n発見: 禁止ラベル"):
