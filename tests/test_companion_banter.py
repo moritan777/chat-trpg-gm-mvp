@@ -160,8 +160,8 @@ class CompanionBanterTests(unittest.TestCase):
         user_packet = json.loads(captured[0][1]["messages"][1]["content"])
         self.assertIn("GMの発見結果を説明し直したり", prompt)
         self.assertIn("毎回原因や次の行動を推理したりする必要はない", prompt)
-        self.assertIn("先に話した仲間への反応を優先候補にできる", prompt)
-        self.assertIn("先行仲間への反応を優先候補にできる", "".join(user_packet["instructions"]))
+        self.assertIn("先行仲間への反応を優先候補にできる", prompt)
+        self.assertIn("働きかけへの短い応答を優先候補にできる", "".join(user_packet["instructions"]))
         self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
 
@@ -185,8 +185,8 @@ class CompanionBanterTests(unittest.TestCase):
 
         prompt = captured[0]["messages"][0]["content"]
         self.assertIn("観察事実を述べる", prompt)
-        self.assertIn("正式な発見結果を省略せず", prompt)
-        self.assertIn("観察後に判明した範囲の解釈", prompt)
+        self.assertIn("その意味を観察後の正式な解釈としてGM本文へ必ず含め", prompt)
+        self.assertIn("表層状態だけで終えない", prompt)
         self.assertIn("表層情報だけへ弱めない", prompt)
         self.assertIn("犯人、動機、意図、背景事情、証拠隠滅、次の正解行動を追加しない", prompt)
         self.assertIn("硬い報告書や検査報告の口調にはしない", prompt)
@@ -203,12 +203,23 @@ class CompanionBanterTests(unittest.TestCase):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("事件解決だけでなく人物関係と卓の空気も作る", prompt)
-        self.assertIn("GM本文へ新しい感想を足すより", prompt)
+        self.assertIn("GMへの別コメントより先行仲間への反応を優先候補", prompt)
         self.assertIn("同じ発見へ全員が別コメントを出す必要もない", prompt)
-        self.assertIn("仲間同士で話題が成立したらGMの発見へ戻らなくてよい", prompt)
-        self.assertIn("一人の発言で十分なら追加の仲間を出さず", prompt)
+        self.assertIn("仲間同士の話題からGMへ戻る必要", prompt)
+        self.assertIn("短い応答でまとまればそこで終える", prompt)
         self.assertIn("掛け合いは必須ではない", prompt)
         self.assertIn("0〜3人が自然なときだけ", prompt)
+
+    def test_prompt_allows_natural_closure_of_directed_companion_actions(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("質問、依頼、心配、ツッコミ、茶化し", prompt)
+        self.assertIn("袖を掴むなどの働きかけ", prompt)
+        self.assertIn("相手が自然なら短く応答してよい", prompt)
+        self.assertIn("独立コメントの列で終わらせる必要はない", prompt)
+        self.assertIn("沈黙や無視が自然なら応答しなくてもよい", prompt)
+        self.assertIn("短い応答でまとまればそこで終える", prompt)
+        self.assertIn("掛け合いは必須ではない", prompt)
 
     def test_prompt_broadens_each_companion_beyond_evidence_roles(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -333,8 +344,12 @@ class CompanionBanterTests(unittest.TestCase):
         )
         self.assertNotIn(public_text, sent["safe_banter_packet"]["current_observations"])
 
-    def test_gm_context_keeps_lens_and_valve_discoveries_for_gm_and_both(self):
+    def test_gm_context_keeps_all_script_discoveries_for_gm_and_both(self):
         cases = (
+            ("broken_lantern", "broken_lantern_clue", "ランタンを見る"),
+            ("cliff_footprints", "cliff_tracks_to_shore", "足跡を見る"),
+            ("blood_stain", "blood_drag_clue", "染みを見る"),
+            ("rope_marks", "rope_to_shore", "ロープ跡を見る"),
             ("lighthouse_lens", "lens_misaligned", "レンズを見る"),
             ("oil_valve", "oil_valve_tampered", "供給弁を見る"),
         )
