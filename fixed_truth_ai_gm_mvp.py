@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.3
+Chat-style TTRPG GM MVP v2.15.4
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.3 [companion-dialogue-independence]"
+VERSION = "v2.15.4 [companion-social-banter]"
 
 
 class State:
@@ -126,33 +126,33 @@ class Game:
     def companion_banter_prompt(self):
         return (
             "【役割】\n"
-            "仲間はGMの説明を補足する解説者ではなく、GMから独立した卓の参加者である。\n"
-            "第一目的は正しい推理ではなく、それぞれの人格で卓の会話を作ること。\n"
-            "事件解決に役立たない雑談、冗談、早とちり、勘違い、脱線をしてよい。\n"
-            "GMの観察を要約・言い換えず、GMへ独立した感想を並べる必要はない。\n"
+            "仲間はGMの補助説明員ではなく、独立した卓の参加者である。\n"
+            "手掛かりを分析しなくてもよい。人物関係と卓の空気を作る発言も正規の仲間会話であり、"
+            "事件解決に役立たなくてよい。\n"
+            "現在の観察へ直接触れない連想、仲間への心配や甘え、茶化し、軽口、感情、勘違い、短い脱線もよい。\n"
             "\n"
             "【リュート】\n"
-            "現実寄りだが解説役ではない。変な発言にツッコんだり、"
-            "呆れたり、ときには一緒に乗ったりする。\n"
+            "現実寄りだが事件の解説役ではない。仲間へツッコむ、呆れる、話を戻す、"
+            "逆に面白がって乗る、何も言わないことがある。毎回正しい分析や結論を述べない。\n"
             "\n"
             "【ニコ】\n"
-            "筋の通った推理より、思いついた妙な可能性を口にしやすい。\n"
-            "根拠のない珍説、大げさな連想、場違いな発想で卓をかき回してよい。\n"
-            "正しい必要も、有益である必要もない。\n"
+            "筋の通った事件分析より、その場で思いついた大げさな想像、妙な偶然、場違いな連想、"
+            "どうでもよい思いつきを口にしやすい。発言は事件の仮説でなくてよく、"
+            "他の仲間が反応したくなる一言を歓迎する。\n"
             "\n"
             "【ピピ】\n"
-            "論理より感情で反応する。変な話を真面目に受け取ったり、"
-            "さらに広げたり、怖がったり、面白がったりする。\n"
+            "論理より感情や人間関係で反応する。怖がるだけでなく、面白がる、感心する、甘える、"
+            "妙な話を真面目に受け取って広げる、どうでもよい部分を気にすることがある。事件分析をまとめる役ではない。\n"
             "\n"
             "【会話関係】\n"
-            "後続の仲間は先行発言を聞き、必要なら一続きの短い会話にする。\n"
-            "全員が同じ意見へ収束せず、根拠の弱い推測、感情、脱線など誰がどの役をしてもよい。\n"
+            "全員が調査対象へ意見を言う必要はない。誰かの話が面白ければ、証拠分析を続けず少し付き合ってよい。\n"
+            "推理、感情、雑談、沈黙は場面に応じて揺れ、誰がどの会話役をしてもよい。\n"
             "\n"
             "【事実境界】\n"
             "冗談や仮説は確定事実ではない。未公開情報や正解ルートを話さない。\n"
             "優先順は、現在のGM事実、今回の開示、現在の場所・対象・行動、同一ターンの先行発言、過去会話。\n"
             "過去台詞はそのまま再出力せず、同じ内容の言い換えも避け、現在の場面に合う新しい反応や発展だけに使う。\n"
-            "自然につながらないなら使用しない。正解行動を指示する攻略役にならない。\n"
+            "自然につながらないなら使用せず、正解行動を指示する攻略役にならない。\n"
             "0〜3人が自然なときだけ話す。発言しない人物の行は出さず、毎回全員や毎回同じ役割にはしない。"
         )
 
@@ -1466,52 +1466,32 @@ class Game:
                 observations.append(discoverable["public_text"])
         return observations
 
-    def public_revelations_for_target(self, target_id, ev):
-        observations = []
-        for did in self.event_revealed_discoverables(ev):
-            discoverable = self.disc.get(did, {})
-            if discoverable.get("source", {}).get("id") == target_id and discoverable.get("public_text"):
-                observations.append(discoverable["public_text"])
-        return observations
-
     def safe_observation_for_target(self, target_id, it, ev, res=None):
         """Return renderer-safe observations for the current target.
 
-        Important policy:
-        - surface_text is always safe.
-        - public_text is exposed only when the discoverable is revealed.
-        - object/npc banter_observation may contain GM-only clue hints, so do not expose it
-          on blocked/no_reveal turns unless scenario provides surface_banter_observation.
+        Select one public stage for companion context rather than stacking the
+        surface, revelation, and author-only banter descriptions. Canonical GM
+        text and discovery logs are built separately and are not reduced here.
         """
         res = res or {}
         out = []
         if target_id in self.objects:
             obj = self.objects[target_id]
-            surface = obj.get("surface_text", "")
-            if surface:
-                out.append(surface)
             if self.target_revealed_this_turn(target_id, ev):
                 out.extend(self.public_revelations_for_target(target_id, ev))
-                bo = obj.get("banter_observation", "")
-                if bo:
-                    out.append(bo)
             else:
-                safe_bo = obj.get("surface_banter_observation", "")
-                if safe_bo:
-                    out.append(safe_bo)
-                out.append("この対象について、未発見のpublic_textや内部用banter_observationを先取りしない。")
-            return [x for x in out if x]
+                surface = obj.get("surface_banter_observation") or obj.get("surface_text", "")
+                if surface:
+                    out.append(surface)
+            return list(dict.fromkeys(x for x in out if x))
         if target_id in self.npcs:
             npc = self.npcs[target_id]
             if self.target_revealed_this_turn(target_id, ev):
                 out.extend(self.public_revelations_for_target(target_id, ev))
-                if npc.get("banter_observation"):
-                    out.append(npc["banter_observation"])
             else:
                 if npc.get("surface_banter_observation"):
                     out.append(npc["surface_banter_observation"])
-                out.append("このNPCから未取得の証言や秘密を先取りしない。")
-            return [x for x in out if x]
+            return list(dict.fromkeys(x for x in out if x))
         if isinstance(target_id, str) and target_id.startswith("surface:"):
             return ["これは正式な手がかり対象ではない。新しい情報を足さない。"]
         return []
@@ -1632,7 +1612,6 @@ class Game:
                 "canonical_gm_textの意味と情報量を保ってGM口調に整える。",
                 "preserved_log_lines_not_to_generate は既に別途表示されるので、絶対に出力しない。",
                 "未発見の手がかり・真相・正解ルートを追加しない。",
-                "仲間はGMと独立した人物で、GM本文を補足する義務はない。人物ごとの会話方針はcompanion_banter_prompt由来のSystem指示を優先する。",
                 "current_observationsは仲間が知ってよい公開知識であり、発言対象にする義務はない。",
                 "仲間発言はGM発話の後に0〜3行。その場で自然に口を挟む人物だけとし、発言しない人物の行は出力しない。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
@@ -1662,7 +1641,6 @@ class Game:
             "『じゃあ〜してみるんだね』『〜を見るんだね』『〜へ向かう感じだね』『ここから直接は難しそうだね』のようにする。"
             "\n\n"
             "【仲間発言】"
-            "仲間はGMの補助説明員ではない。人物性の詳細は以下のcompanion_banter_promptを優先する。"
             + self.companion_banter_prompt()
             + "\n\n"
             "出力形式は、GM行と仲間行のみ。最初は必ず『GM:』で始める。JSON、箇条書き、コードブロックは禁止。"
