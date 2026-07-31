@@ -293,20 +293,27 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("仲間発言は0〜5行", prompt)
         self.assertIn("同じ人物の短い再応答もよい", prompt)
 
-    def test_prompt_broadens_each_companion_beyond_evidence_roles(self):
+    def test_prompt_distinguishes_what_each_companion_notices_first(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("負担、危険、道具、仲間", prompt)
+        self.assertIn("何が起きたかより、次に何が起きるか", prompt)
+        self.assertIn("危険、負担、道具、退路、仲間の状態", prompt)
+        self.assertIn("推理役ではなく実務的な視点", prompt)
         self.assertIn("解説・安全指導役に固定しない", prompt)
-        self.assertIn("細部、妙な連想、疑問、使い道、身体感覚、脱線", prompt)
+        self.assertIn("細部、違和感、形、音、匂い、小物", prompt)
+        self.assertIn("事件そのものより、周辺の細かい要素や妙な連想", prompt)
         self.assertIn("冗談役に固定しない", prompt)
-        self.assertIn("感情、雰囲気、物、仲間", prompt)
+        self.assertIn("理屈より人へ意識が向く", prompt)
+        self.assertIn("誰かが傷付いていないか、誰かが不安そうでないか", prompt)
+        self.assertIn("仲間やNPCへの感情的反応が中心", prompt)
         self.assertIn("怖がり・特定人物への依存役に固定しない", prompt)
 
     def test_prompt_defines_kuro_as_unreliable_without_leaking_hidden_truth(self):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("【クロ】", prompt)
+        self.assertIn("事件性、異常事態、騒ぎ、目立つ出来事", prompt)
+        self.assertIn("静かな観察対象よりも", prompt)
         self.assertIn("見栄、ホラ話、勘違い、自信満々な推測", prompt)
         self.assertIn("正しい必要はない", prompt)
         self.assertIn("未発見情報や真相を事実として知っているわけではない", prompt)
@@ -315,6 +322,8 @@ class CompanionBanterTests(unittest.TestCase):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("【ガラン】", prompt)
+        self.assertIn("行動可能な対象が見えると反応しやすい", prompt)
+        self.assertIn("単なる観察対象には必ずしも興味を示さない", prompt)
         self.assertIn("試す、開ける、押す、壊す、登る", prompt)
         self.assertIn("分析役にならず", prompt)
         self.assertIn("単純で雑な解決案", prompt)
