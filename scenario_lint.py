@@ -40,6 +40,8 @@ def main():
         if d.get('id') in ids:
             errors.append('duplicate discoverable id: ' + d.get('id', ''))
         ids.append(d.get('id'))
+        if not isinstance(d.get('public_text'), str) or not d.get('public_text', '').strip():
+            errors.append('discoverable missing non-empty string public_text: ' + d.get('id', '<unknown>'))
     dids = set(ids)
 
     def check_refs(container, label):
