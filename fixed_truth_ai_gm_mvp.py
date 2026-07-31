@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.14
+Chat-style TTRPG GM MVP v2.15.15
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.14 [table-turn-temperature]"
+VERSION = "v2.15.15 [history-scope-and-gm-neutrality]"
 
 
 class State:
@@ -181,6 +181,7 @@ class Game:
         self.last_companion_turn = {
             "lines": companion_lines[-4:],
             "context": {
+                "location_id": st.location,
                 "location": self.locs.get(st.location, {}).get("name", st.location),
                 "target": it.get("target_id"),
                 "action": it.get("action_type"),
@@ -898,11 +899,11 @@ class Game:
             name = self.objects.get(target_id, {}).get("name", "それ")
             observation = self.objects.get(target_id, {}).get("banter_observation", "")
             if missing_all:
-                fallback = f"GM: うーん、{name}は気になるんだけど、これだけだとまだ決め手に欠けるね。"
-                facts = [f"{name}を調べている。", "追加の前提がないため、まだ決め手になる情報は出ない。"]
+                fallback = f"GM: {name}を確認した。今の確認では、それ以上のことは分からない。"
+                facts = [f"{name}を調べている。", "確認できる範囲では追加の観察結果はない。"]
             else:
-                fallback = f"GM: {name}を見てみたけど、今のところそれ以上は読み取れないね。"
-                facts = [f"{name}を調べている。", "今の行動では新しい手がかりは出ない。"]
+                fallback = f"GM: {name}を確認した。今の確認では、それ以上のことは分からない。"
+                facts = [f"{name}を調べている。", "確認できる範囲では追加の観察結果はない。"]
             packet = {
                 "commentary_type": "inspect_blocked_or_no_reveal",
                 "player_input": raw,
@@ -910,7 +911,7 @@ class Game:
                 "object": name,
                 "visible_observation": observation,
                 "facts": facts,
-                "style_goal": "調査はしているが、まだ情報が足りない感じをGM口調で語る。未発見情報は言わない。",
+                "style_goal": "行動と観察結果だけを中立的なGM口調で語る。情報の重要度や攻略上の価値を評価しない。",
             }
             return self.llm_gm_commentary(packet, fallback)
         fallback = "GM: うーん、今のところはまだ分からないね。"
@@ -941,19 +942,19 @@ class Game:
         if target_id in self.objects:
             name = self.objects[target_id].get("name", "それ")
             observation = self.objects[target_id].get("banter_observation", "")
-            fallback = f"GM: {name}を確認したけど、今のところ新しく分かることはなさそうだ。"
+            fallback = f"GM: {name}を確認した。今の確認では、それ以上のことは分からない。"
             packet = {
                 "commentary_type": "inspect_no_reveal",
                 "player_input": raw,
                 "current_location": cur_name,
                 "object": name,
                 "visible_observation": observation,
-                "facts": [f"{name}を確認した。", "新しい手がかりは出ない。"],
-                "style_goal": "調べたが今回は空振り、という感じをGM口調で語る。",
+                "facts": [f"{name}を確認した。", "確認できる範囲では追加の観察結果はない。"],
+                "style_goal": "行動と観察結果だけを中立的なGM口調で語る。情報価値を評価しない。",
             }
             return self.llm_gm_commentary(packet, fallback)
-        fallback = "GM: うーん、今の行動だけでは特に新しいことは分からないね。"
-        return self.llm_gm_commentary({"commentary_type": "no_reveal", "player_input": raw, "current_location": cur_name, "facts": ["新しい手がかりは出ない。"]}, fallback)
+        fallback = "GM: 今の確認では、それ以上のことは分からない。"
+        return self.llm_gm_commentary({"commentary_type": "no_reveal", "player_input": raw, "current_location": cur_name, "facts": ["確認できる範囲では追加の観察結果はない。"]}, fallback)
 
     def object_not_present_response(self, it, st):
         cur_name = self.locs.get(st.location, {}).get("name", "現在地")
@@ -1522,20 +1523,36 @@ class Game:
                 obs.append(loc_obs)
         previous = self.last_companion_turn
         previous_context = previous.get("context", {})
-        # An inspect of a different object starts a distinct conversational scene.
-        # Do not put the previous object's wording in the model input where it can
-        # be mistaken for a response template.
-        include_history = not (
+        current_location = self.locs.get(st.location, {}).get("name", st.location)
+        previous_location = previous_context.get("location_id")
+        location_changed = (
+            previous_location != st.location
+            if previous_location
+            else bool(
+                previous_context.get("location")
+                and previous_context.get("location") != current_location
+            )
+        )
+        # A location change or an inspect of a different object starts a distinct
+        # conversational scene. Keep metadata for diagnostics, but do not put the
+        # previous scene's wording in the model input as a response template.
+        different_inspect_target = (
             it.get("action_type") == "inspect"
             and previous_context.get("target")
             and previous_context.get("target") != target_id
             and previous_context.get("action") != "move"
         )
+        include_history = not (location_changed or different_inspect_target)
+        history_usage = (
+            "場所が変わったため前場面の台詞本文は送らない。"
+            if location_changed
+            else "現在の場面に自然につながる場合だけ参考にする。コピーや言い換え再出力は禁止。"
+        )
         return {
             "current_event": {
                 "player_input": it.get("raw", ""),
                 "action_type": it.get("action_type"),
-                "current_location": self.locs.get(st.location, {}).get("name", st.location),
+                "current_location": current_location,
                 "target_id": target_id,
                 "revealed_this_turn": sorted(self.event_revealed_discoverables(ev)),
             },
@@ -1544,7 +1561,7 @@ class Game:
                 "label": "reference_only_past_turn",
                 "previous_scene": previous_context,
                 "lines": self.recent_companion_lines() if include_history else [],
-                "usage": "現在の場面に自然につながる場合だけ参考にする。コピーや言い換え再出力は禁止。",
+                "usage": history_usage,
             },
             "safety": [
                 "current_observationsにない情報を、知っている事実として言わない。",
@@ -1644,7 +1661,7 @@ class Game:
                 "current_observationsは仲間が目にしている表層情報であり、発言対象にする義務はない。",
                 "仲間発言は0〜3行。場面への独立コメントだけでなく、自然なら仲間への働きかけと短い応答を選べる。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
-                "GM本文は確定事実だけを扱い、仲間の仮説・冗談・勘違いをGM本文へ混ぜない。",
+                "GM本文は確定事実と中立的な観察だけを扱い、未定義の重要度評価や攻略評価を加えない。",
             ],
         }
 
@@ -1654,8 +1671,8 @@ class Game:
             "発見・判定・結果・補正・debug、JSON、箇条書き、コードブロックは禁止。仲間発言は0〜3行。\n\n"
             "【GMの責務・必須】canonical_gm_textに沿い、行動、観察可能な状態、場面を自然な卓上GM口調で描写する。"
             "正式発見は後続のGM行で原文表示されるため詳しく反復しない。"
-            "Canonical外の犯人、動機、意図、背景事情、証拠隠滅、正解行動を追加しない。"
-            "硬いシステム文や攻略案内にしない。\n\n"
+            "Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない。"
+            "仲間への直接の依頼では本人の反応をGM本文で先回りしない。\n\n"
             "【仲間への入力・必須】safe_banter_packetを情報境界とする。"
             "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move なら重要な手掛かりがあるふりをしない。\n\n"
             + self.companion_banter_prompt()

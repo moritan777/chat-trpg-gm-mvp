@@ -169,7 +169,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("自然なら仲間への働きかけと短い応答を選べる", instructions)
         self.assertNotIn("全員を一度ずつ", instructions)
         self.assertNotIn("同じ人物が短く再応答", instructions)
-        self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
+        self.assertIn("GM本文は確定事実と中立的な観察だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
 
     def test_table_turn_temperature_default_fallback_and_priority(self):
@@ -250,8 +250,8 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("行動、観察可能な状態、場面", prompt)
         self.assertIn("正式発見は後続のGM行で原文表示されるため詳しく反復しない", prompt)
         self.assertIn("canonical_gm_textに沿い", prompt)
-        self.assertIn("Canonical外の犯人、動機、意図、背景事情、証拠隠滅、正解行動を追加しない", prompt)
-        self.assertIn("硬いシステム文や攻略案内にしない", prompt)
+        self.assertIn("Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない", prompt)
+        self.assertIn("本人の反応をGM本文で先回りしない", prompt)
         self.assertLessEqual(len(prompt), 1850)
         self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1320)
 
@@ -343,6 +343,69 @@ class CompanionBanterTests(unittest.TestCase):
 
         game.remember_companion_turn([], current_intent, state)
         self.assertEqual(game.recent_companion_lines(), [])
+
+    def test_location_change_keeps_history_metadata_but_omits_previous_lines(self):
+        game = self.make_game()
+        state = State("harbor")
+        old_intent = {"raw": "村長の話を聞く", "action_type": "ask", "target_id": "village_head"}
+        game.remember_companion_turn(["リュート: 倉庫なら隠れやすいな。"], old_intent, state)
+
+        state.location = "warehouse"
+        packet = game.packet(
+            {"raw": "倉庫へ移動する", "action_type": "move", "target_id": "warehouse"},
+            [],
+            state,
+        )
+        history = packet["recent_companion_lines"]
+
+        self.assertEqual(history["previous_scene"]["location"], "港")
+        self.assertEqual(history["lines"], [])
+        self.assertIn("場所が変わったため", history["usage"])
+
+    def test_same_location_and_target_retains_reference_history(self):
+        game = self.make_game()
+        state = State("warehouse")
+        intent = {"raw": "航路図を見る", "action_type": "inspect", "target_id": "old_chart"}
+        game.remember_companion_turn(["ニコ: 丸があるね。"], intent, state)
+
+        history = game.packet(intent, [], state)["recent_companion_lines"]
+
+        self.assertEqual(history["lines"], ["ニコ: 丸があるね。"])
+        self.assertIn("コピーや言い換え再出力は禁止", history["usage"])
+
+    def test_blocked_chart_canonical_is_neutral_before_table_rendering(self):
+        game = self.make_game()
+        state = State("warehouse")
+        chart_discovery = game.disc["smuggler_route_analysis"]
+        intent = {"raw": "航路図を解析する", "action_type": "skill_check", "target_id": "old_chart"}
+
+        canonical = game.gm_comment_for_blocked_discoverable(
+            chart_discovery,
+            intent,
+            state,
+            missing_all=["tide_log_cave_time", "crate_blue_mark"],
+        )
+
+        self.assertEqual(
+            canonical,
+            "GM: 古い航路図を確認した。今の確認では、それ以上のことは分からない。",
+        )
+
+    def test_direct_companion_request_uses_consult_handoff_without_preempting_response(self):
+        for raw, name in (("ピピ、怖い話をして", "ピピ"), ("ニコ、踊って", "ニコ")):
+            with self.subTest(raw=raw):
+                game = self.make_game()
+                state = State("harbor")
+                game.embedded_action_intent = lambda text, allowed=None: ("consult", "test")
+
+                intent = game.judge(raw, state)
+                notes, result, events = game.resolve(intent, state)
+
+                self.assertEqual(intent["action_type"], "consult")
+                self.assertEqual(intent["target_id"], "companion:" + name)
+                self.assertEqual(notes, [f"GM: {name}に意見を求めます。"])
+                self.assertEqual(result["category"], "consult")
+                self.assertEqual(events, [{"type": "consult", "name": name}])
 
     def test_table_renderer_reads_history_then_saves_current_response_once(self):
         game = self.make_game()

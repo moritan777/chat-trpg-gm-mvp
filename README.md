@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.14 Table Turn標準温度の見直し** (`v2.15.14 [table-turn-temperature]`)
+現行版: **v2.15.15 仲間履歴の場面境界とGM中立性** (`v2.15.15 [history-scope-and-gm-neutrality]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
