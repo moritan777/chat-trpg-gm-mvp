@@ -1,8 +1,10 @@
 import json
+import io
 import os
 import re
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -169,6 +171,62 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertNotIn("同じ人物が短く再応答", instructions)
         self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
+
+    def test_table_turn_temperature_default_fallback_and_priority(self):
+        game = self.make_game()
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(game.table_turn_temperature(), 0.9)
+        with patch.dict(os.environ, {"GM_LINE_REWRITE_TEMPERATURE": "0.8"}, clear=True):
+            self.assertEqual(game.table_turn_temperature(), 0.8)
+        with patch.dict(
+            os.environ,
+            {"TABLE_TURN_TEMPERATURE": "1.0", "GM_LINE_REWRITE_TEMPERATURE": "0.6"},
+            clear=True,
+        ):
+            self.assertEqual(game.table_turn_temperature(), 1.0)
+
+    def test_invalid_table_turn_temperature_names_source_variable(self):
+        game = self.make_game()
+        with patch.dict(os.environ, {"TABLE_TURN_TEMPERATURE": "abc"}, clear=True):
+            with self.assertRaisesRegex(
+                ValueError,
+                r"Invalid TABLE_TURN_TEMPERATURE: abc.*numeric value",
+            ):
+                game.table_turn_temperature()
+
+    def test_debug_log_reports_effective_table_turn_temperature_only_when_enabled(self):
+        state = State("cliff_path")
+
+        def render(debug_llm, environment=None):
+            game = Game(self.temp_dir.name, debug_llm=debug_llm)
+            game.post_json = lambda url, body, timeout, tag: {
+                "choices": [{"message": {"content": "GM: ランタンを見る。"}}]
+            }
+            output = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {"LLM_PROVIDER": "llama_cpp", **(environment or {})},
+                clear=True,
+            ), redirect_stdout(output):
+                game.render_table_turn(
+                    ["GM: ランタンを見る。"],
+                    {"raw": "ランタンを見る", "action_type": "inspect", "target_id": "broken_lantern"},
+                    {"status": "ok", "category": "no_reveal"},
+                    [],
+                    state,
+                )
+            return output.getvalue()
+
+        self.assertIn("[TABLE_TURN_TEMPERATURE] 0.9", render(True))
+        self.assertIn(
+            "[TABLE_TURN_TEMPERATURE] 1.0",
+            render(True, {"TABLE_TURN_TEMPERATURE": "1.0"}),
+        )
+        self.assertIn(
+            "[TABLE_TURN_TEMPERATURE] 0.8",
+            render(True, {"GM_LINE_REWRITE_TEMPERATURE": "0.8"}),
+        )
+        self.assertNotIn("[TABLE_TURN_TEMPERATURE]", render(False))
 
     def test_system_prompt_prioritizes_observation_without_weakening_discovery(self):
         game = self.make_game()

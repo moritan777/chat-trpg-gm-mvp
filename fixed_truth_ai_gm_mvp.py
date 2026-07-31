@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.13
+Chat-style TTRPG GM MVP v2.15.14
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.13 [prompt-priority-compression]"
+VERSION = "v2.15.14 [table-turn-temperature]"
 
 
 class State:
@@ -117,6 +117,20 @@ class Game:
 
     def llm_model(self):
         return os.getenv("LLAMA_CPP_MODEL") or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or "local-model"
+
+    def table_turn_temperature(self):
+        """Return the effective Table Turn temperature with legacy fallback support."""
+        variable = "TABLE_TURN_TEMPERATURE"
+        value = os.getenv(variable)
+        if value is None:
+            variable = "GM_LINE_REWRITE_TEMPERATURE"
+            value = os.getenv(variable, "0.9")
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
+            ) from exc
 
     def llm_desc(self):
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
@@ -1652,10 +1666,11 @@ class Game:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(packet, ensure_ascii=False)},
             ],
-            "temperature": float(os.getenv("TABLE_TURN_TEMPERATURE", os.getenv("GM_LINE_REWRITE_TEMPERATURE", "0.7"))),
+            "temperature": self.table_turn_temperature(),
             "max_tokens": int(os.getenv("TABLE_TURN_MAX_TOKENS", "360")),
         }
         if self.debug_llm:
+            print("[TABLE_TURN_TEMPERATURE]", body["temperature"])
             print("[TABLE_TURN_SYSTEM]\n" + system_prompt)
             print("[TABLE_TURN_USER]\n" + body["messages"][1]["content"])
 
