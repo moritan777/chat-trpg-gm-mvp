@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.15
+Chat-style TTRPG GM MVP v2.15.16
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.15 [history-scope-and-gm-neutrality]"
+VERSION = "v2.15.16 [companion-conversation-continuation]"
 
 
 class State:
@@ -132,6 +132,20 @@ class Game:
                 f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
             ) from exc
 
+    def table_turn_temperature(self):
+        """Return the effective Table Turn temperature with legacy fallback support."""
+        variable = "TABLE_TURN_TEMPERATURE"
+        value = os.getenv(variable)
+        if value is None:
+            variable = "GM_LINE_REWRITE_TEMPERATURE"
+            value = os.getenv(variable, "0.9")
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
+            ) from exc
+
     def llm_desc(self):
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
             return "未設定。標準ライブラリのみのフォールバックで動作します。"
@@ -160,9 +174,11 @@ class Game:
             "【会話・任意】\n"
             "場面へ感想を述べても、最初から仲間へ話しかけてもよい。複数行では、独立コメントより働きかけと短い応答が自然なら選べる。"
             "短い応答で終了してよく、独り言、沈黙、無視も自然なら許可する。掛け合いは必須ではない。\n"
+            "【会話継続】conversation_context.mode=continueなら、previous_companion_linesへの返答、ツッコミ、同意、質問、便乗を優先する。"
+            "requested_companionsがあればその人物を優先し、全員指定なら自然な範囲で全員参加を優先する。\n"
             "\n"
             "【履歴と行数・必須】\n"
-            "仲間発言は0〜3行。必要な人物だけ話し、全員や3行を埋めない。同じ人物の短い再応答もよい。"
+            "仲間発言は0〜3行。参加者指定がなければ必要な人物だけ話し、全員や3行を埋めない。同じ人物の短い再応答もよい。"
             "過去台詞をコピーまたは言い換え再出力しない。"
         )
 
@@ -567,7 +583,24 @@ class Game:
         for name in self.companion_aliases():
             if name in raw:
                 return "companion:" + name
+        if any(group in raw for group in ("全員", "みんな")):
+            return "companion:全員"
         return None
+
+    def requested_companions(self, raw):
+        """Extract requested participants without generating or assigning dialogue."""
+        roster = ["ニコ", "ピピ", "リュート"]
+        if any(group in raw for group in ("全員", "みんな")):
+            return roster
+        positions = [(raw.find(name), name) for name in roster if name in raw]
+        return [name for _position, name in sorted(positions)]
+
+    def continues_companion_conversation(self, raw):
+        """Recognize explicit conversation-control requests, not dialogue meaning."""
+        return any(
+            marker in raw
+            for marker in ("反応して", "答えて", "続けて", "ツッコんで", "混ざって")
+        )
 
     def surface_phrase_from_raw(self, raw):
         # Extract a likely noun phrase before a Japanese case particle.
@@ -1548,7 +1581,7 @@ class Game:
             if location_changed
             else "現在の場面に自然につながる場合だけ参考にする。コピーや言い換え再出力は禁止。"
         )
-        return {
+        packet = {
             "current_event": {
                 "player_input": it.get("raw", ""),
                 "action_type": it.get("action_type"),
@@ -1569,6 +1602,16 @@ class Game:
                 "recent_companion_linesは過去の参考会話であり、世界設定や発見済み情報として扱わない。",
             ],
         }
+        requested = self.requested_companions(it.get("raw", ""))
+        if requested:
+            packet["requested_companions"] = requested
+        if self.continues_companion_conversation(it.get("raw", "")):
+            packet["conversation_context"] = {
+                "mode": "continue",
+                "requested_companions": requested,
+                "previous_companion_lines": self.recent_companion_lines() if include_history else [],
+            }
+        return packet
 
     def render_table_turn(self, notes, it, res, ev, st):
         """Unified table-turn renderer.

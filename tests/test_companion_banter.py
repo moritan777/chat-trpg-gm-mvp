@@ -273,6 +273,9 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("同じ人物の短い再応答もよい", prompt)
         self.assertIn("全員や3行を埋めない", prompt)
         self.assertNotIn("0〜3人", prompt)
+        self.assertIn("conversation_context.mode=continue", prompt)
+        self.assertIn("requested_companionsがあればその人物を優先", prompt)
+        self.assertIn("全員指定なら自然な範囲で全員参加を優先", prompt)
 
     def test_prompt_allows_natural_closure_of_directed_companion_actions(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -406,6 +409,65 @@ class CompanionBanterTests(unittest.TestCase):
                 self.assertEqual(notes, [f"GM: {name}に意見を求めます。"])
                 self.assertEqual(result["category"], "consult")
                 self.assertEqual(events, [{"type": "consult", "name": name}])
+
+    def test_continuation_context_exposes_same_scene_line_and_requested_responder(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.remember_companion_turn(
+            ["ニコ: 霧の中に巨大なイカがいるかも。"],
+            {"raw": "ニコ変なこと言って", "action_type": "consult", "target_id": "companion:ニコ"},
+            state,
+        )
+
+        packet = game.packet(
+            {"raw": "リュート反応して", "action_type": "consult", "target_id": "companion:リュート"},
+            [],
+            state,
+        )
+
+        self.assertEqual(packet["requested_companions"], ["リュート"])
+        self.assertEqual(packet["conversation_context"]["mode"], "continue")
+        self.assertEqual(
+            packet["conversation_context"]["previous_companion_lines"],
+            ["ニコ: 霧の中に巨大なイカがいるかも。"],
+        )
+
+    def test_continuation_context_respects_location_history_boundary(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.remember_companion_turn(
+            ["ニコ: 港の霧って変だね。"],
+            {"action_type": "consult", "target_id": "companion:ニコ"},
+            state,
+        )
+        state.location = "warehouse"
+
+        packet = game.packet(
+            {"raw": "リュートも混ざって", "action_type": "consult", "target_id": "companion:リュート"},
+            [],
+            state,
+        )
+
+        self.assertEqual(packet["conversation_context"]["previous_companion_lines"], [])
+        self.assertEqual(packet["recent_companion_lines"]["lines"], [])
+
+    def test_named_and_group_requests_are_structured_as_participant_preferences(self):
+        game = self.make_game()
+        state = State("harbor")
+
+        named = game.packet(
+            {"raw": "ニコとピピで話して", "action_type": "consult", "target_id": "companion:ニコ"},
+            [],
+            state,
+        )
+        game.embedded_action_intent = lambda text, allowed=None: ("consult", "test")
+        everyone_intent = game.judge("全員で雑談して", state)
+        everyone = game.packet(everyone_intent, [], state)
+
+        self.assertEqual(named["requested_companions"], ["ニコ", "ピピ"])
+        self.assertNotIn("conversation_context", named)
+        self.assertEqual(everyone_intent["action_type"], "consult")
+        self.assertEqual(everyone["requested_companions"], ["ニコ", "ピピ", "リュート"])
 
     def test_table_renderer_reads_history_then_saves_current_response_once(self):
         game = self.make_game()

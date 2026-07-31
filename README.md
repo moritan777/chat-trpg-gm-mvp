@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.15 仲間履歴の場面境界とGM中立性** (`v2.15.15 [history-scope-and-gm-neutrality]`)
+現行版: **v2.15.16 仲間会話の継続コンテキスト** (`v2.15.16 [companion-conversation-continuation]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -42,6 +42,7 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 * NPCごとの話題管理
 * LLMによるGM描写
 * 卓の参加者らしい仲間同士の雑談
+* 指定した仲間による同一場面内の会話継続
 * Embeddingによる行動判定
 
 ---
