@@ -629,7 +629,7 @@ class Game:
 
     def requested_companions(self, raw):
         """Extract requested participants without generating or assigning dialogue."""
-        roster = ["ニコ", "ピピ", "リュート"]
+        roster = ["ニコ", "ピピ", "リュート", "クロ", "ガラン"]
         if any(group in raw for group in ("全員", "みんな")):
             return roster
         positions = [(raw.find(name), name) for name in roster if name in raw]
