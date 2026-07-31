@@ -132,6 +132,34 @@ class Game:
                 f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
             ) from exc
 
+    def table_turn_temperature(self):
+        """Return the effective Table Turn temperature with legacy fallback support."""
+        variable = "TABLE_TURN_TEMPERATURE"
+        value = os.getenv(variable)
+        if value is None:
+            variable = "GM_LINE_REWRITE_TEMPERATURE"
+            value = os.getenv(variable, "0.9")
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
+            ) from exc
+
+    def table_turn_temperature(self):
+        """Return the effective Table Turn temperature with legacy fallback support."""
+        variable = "TABLE_TURN_TEMPERATURE"
+        value = os.getenv(variable)
+        if value is None:
+            variable = "GM_LINE_REWRITE_TEMPERATURE"
+            value = os.getenv(variable, "0.9")
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
+            ) from exc
+
     def llm_desc(self):
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
             return "未設定。標準ライブラリのみのフォールバックで動作します。"
@@ -587,6 +615,21 @@ class Game:
     def requested_companions(self, raw):
         """Extract requested participants without generating or assigning dialogue."""
         roster = self.companion_names()
+        if any(group in raw for group in ("全員", "みんな")):
+            return roster
+        positions = [(raw.find(name), name) for name in roster if name in raw]
+        return [name for _position, name in sorted(positions)]
+
+    def continues_companion_conversation(self, raw):
+        """Recognize explicit conversation-control requests, not dialogue meaning."""
+        return any(
+            marker in raw
+            for marker in ("反応して", "答えて", "続けて", "ツッコんで", "混ざって")
+        )
+
+    def requested_companions(self, raw):
+        """Extract requested participants without generating or assigning dialogue."""
+        roster = ["ニコ", "ピピ", "リュート"]
         if any(group in raw for group in ("全員", "みんな")):
             return roster
         positions = [(raw.find(name), name) for name in roster if name in raw]
