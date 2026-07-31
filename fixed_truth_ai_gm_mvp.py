@@ -132,6 +132,20 @@ class Game:
                 f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
             ) from exc
 
+    def table_turn_temperature(self):
+        """Return the effective Table Turn temperature with legacy fallback support."""
+        variable = "TABLE_TURN_TEMPERATURE"
+        value = os.getenv(variable)
+        if value is None:
+            variable = "GM_LINE_REWRITE_TEMPERATURE"
+            value = os.getenv(variable, "0.9")
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
+            ) from exc
+
     def llm_desc(self):
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
             return "未設定。標準ライブラリのみのフォールバックで動作します。"
