@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.16
+Chat-style TTRPG GM MVP v2.15.17
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.16 [companion-conversation-continuation]"
+VERSION = "v2.15.17 [two-more-companion-archetypes]"
 
 
 class State:
@@ -146,6 +146,20 @@ class Game:
                 f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
             ) from exc
 
+    def table_turn_temperature(self):
+        """Return the effective Table Turn temperature with legacy fallback support."""
+        variable = "TABLE_TURN_TEMPERATURE"
+        value = os.getenv(variable)
+        if value is None:
+            variable = "GM_LINE_REWRITE_TEMPERATURE"
+            value = os.getenv(variable, "0.9")
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
+            ) from exc
+
     def llm_desc(self):
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
             return "未設定。標準ライブラリのみのフォールバックで動作します。"
@@ -171,6 +185,14 @@ class Game:
             "【ピピ】\n"
             "感情、雰囲気、物、仲間へ反応しやすい。心配、同意、共有、甘え、便乗を選べる。怖がり・特定人物への依存役に固定しない。\n"
             "\n"
+            "【クロ】\n"
+            "面白さや勢いを優先する。見栄、ホラ話、勘違い、自信満々な推測をしてよく、正しい必要はない。"
+            "知らないことを知っているように話しても、それはホラ話、冗談、勘違いであり、未発見情報や真相を事実として知っているわけではない。\n"
+            "\n"
+            "【ガラン】\n"
+            "考える前に動きたがる。細かい推理より、試す、開ける、押す、壊す、登るなどの行動に興味を示す。"
+            "分析役にならず、単純で雑な解決案を出してよい。\n"
+            "\n"
             "【会話・任意】\n"
             "場面へ感想を述べても、最初から仲間へ話しかけてもよい。複数行では、独立コメントより働きかけと短い応答が自然なら選べる。"
             "短い応答で終了してよく、独り言、沈黙、無視も自然なら許可する。掛け合いは必須ではない。\n"
@@ -178,24 +200,24 @@ class Game:
             "requested_companionsがあればその人物を優先し、全員指定なら自然な範囲で全員参加を優先する。\n"
             "\n"
             "【履歴と行数・必須】\n"
-            "仲間発言は0〜3行。参加者指定がなければ必要な人物だけ話し、全員や3行を埋めない。同じ人物の短い再応答もよい。"
+            "仲間発言は0〜5行。参加者指定がなければ必要な人物だけ話し、全員や5行を埋めない。同じ人物の短い再応答もよい。"
             "過去台詞をコピーまたは言い換え再出力しない。"
         )
 
-    def recent_companion_lines(self, limit=4):
+    def recent_companion_lines(self, limit=5):
         return list(self.last_companion_turn.get("lines", []))[-limit:]
 
     def remember_companion_turn(self, lines, it, st):
         companion_lines = [
             str(line).strip()
             for line in lines
-            if str(line).strip().startswith(("リュート", "ニコ", "ピピ"))
+            if str(line).strip().startswith(tuple(self.companion_names()))
         ]
         if not companion_lines:
             self.last_companion_turn = {}
             return
         self.last_companion_turn = {
-            "lines": companion_lines[-4:],
+            "lines": companion_lines[-5:],
             "context": {
                 "location_id": st.location,
                 "location": self.locs.get(st.location, {}).get("name", st.location),
@@ -348,7 +370,7 @@ class Game:
             "canonical_gm_textのGM発話だけを、TRPGリプレイの卓でGMが実際に喋っているような口調へ言い換える。"
             "新しい事実は作らない。意味・事実・情報量を増やさない。未発見の手がかり、真相、正解ルートを追加しない。"
             "『発見:』『判定:』『結果:』『補正:』などのログ行は絶対に作らない。"
-            "リュート/ニコ/ピピなど仲間発言は禁止。GM発話だけを書く。"
+            "リュート/ニコ/ピピ/クロ/ガランなど仲間発言は禁止。GM発話だけを書く。"
             "出力は必ず『GM:』で始める。JSON、箇条書き、コードブロックは禁止。"
             "\n\n"
             "【GMの口調】"
@@ -393,7 +415,7 @@ class Game:
                 out = out.strip()
                 if not out or "```" in out or out.lstrip().startswith("{"):
                     return fallback
-                if "リュート" in out or "ニコ" in out or "ピピ" in out:
+                if any(name in out for name in self.companion_names()):
                     return fallback
                 if not out.startswith("GM:"):
                     out = "GM: " + out
@@ -486,8 +508,11 @@ class Game:
                 names += list(c.get("aliases", []) or [])
             elif isinstance(c, str):
                 names.append(c)
-        names += ["リュート", "ニコ", "ピピ"]
+        names += self.companion_names()
         return [x for x in dict.fromkeys(names) if x]
+
+    def companion_names(self):
+        return ["ニコ", "ピピ", "リュート", "クロ", "ガラン"]
 
     def action_intent_examples(self):
         return {
@@ -586,6 +611,21 @@ class Game:
         if any(group in raw for group in ("全員", "みんな")):
             return "companion:全員"
         return None
+
+    def requested_companions(self, raw):
+        """Extract requested participants without generating or assigning dialogue."""
+        roster = self.companion_names()
+        if any(group in raw for group in ("全員", "みんな")):
+            return roster
+        positions = [(raw.find(name), name) for name in roster if name in raw]
+        return [name for _position, name in sorted(positions)]
+
+    def continues_companion_conversation(self, raw):
+        """Recognize explicit conversation-control requests, not dialogue meaning."""
+        return any(
+            marker in raw
+            for marker in ("反応して", "答えて", "続けて", "ツッコんで", "混ざって")
+        )
 
     def requested_companions(self, raw):
         """Extract requested participants without generating or assigning dialogue."""
@@ -1702,7 +1742,7 @@ class Game:
                 "preserved_log_lines_not_to_generate は既に別途表示されるので、絶対に出力しない。",
                 "未発見の手がかり・真相・正解ルートを追加しない。",
                 "current_observationsは仲間が目にしている表層情報であり、発言対象にする義務はない。",
-                "仲間発言は0〜3行。場面への独立コメントだけでなく、自然なら仲間への働きかけと短い応答を選べる。",
+                "仲間発言は0〜5行。場面への独立コメントだけでなく、自然なら仲間への働きかけと短い応答を選べる。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
                 "GM本文は確定事実と中立的な観察だけを扱い、未定義の重要度評価や攻略評価を加えない。",
             ],
@@ -1711,7 +1751,7 @@ class Game:
         system_prompt = (
             "あなたはチャット型TRPGリプレイの1ターン描写を整えるレンダラー。\n"
             "【出力契約・必須】GM行と仲間行だけを出力し、最初は必ず『GM:』。"
-            "発見・判定・結果・補正・debug、JSON、箇条書き、コードブロックは禁止。仲間発言は0〜3行。\n\n"
+            "発見・判定・結果・補正・debug、JSON、箇条書き、コードブロックは禁止。仲間発言は0〜5行。\n\n"
             "【GMの責務・必須】canonical_gm_textに沿い、行動、観察可能な状態、場面を自然な卓上GM口調で描写する。"
             "正式発見は後続のGM行で原文表示されるため詳しく反復しない。"
             "Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない。"
@@ -1774,7 +1814,7 @@ class Game:
             print("[TABLE_TURN_RAW]", repr(out))
 
         rendered_lines = [x.strip() for x in out.splitlines() if x.strip()]
-        companion_prefixes = ("リュート", "ニコ", "ピピ")
+        companion_prefixes = tuple(self.companion_names())
         gm_rendered, companion_rendered = [], []
         for line in rendered_lines:
             if line.startswith(companion_prefixes):
