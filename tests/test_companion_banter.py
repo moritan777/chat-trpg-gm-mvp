@@ -297,16 +297,20 @@ class CompanionBanterTests(unittest.TestCase):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("何が起きたかより、次に何が起きるか", prompt)
-        self.assertIn("危険、負担、道具、退路、仲間の状態", prompt)
+        self.assertIn("危険だけでなく、準備、装備、移動、時間配分、役割分担、負担の偏り", prompt)
+        self.assertIn("「誰がやるか」「どの順番で進めるか」「何を持って行くか」", prompt)
+        self.assertIn("段取りを考えることが多い", prompt)
         self.assertIn("推理役ではなく実務的な視点", prompt)
-        self.assertIn("解説・安全指導役に固定しない", prompt)
+        self.assertIn("解説役や安全指導役には固定しない", prompt)
         self.assertIn("細部、違和感、形、音、匂い、小物", prompt)
         self.assertIn("事件そのものより、周辺の細かい要素や妙な連想", prompt)
         self.assertIn("冗談役に固定しない", prompt)
         self.assertIn("理屈より人へ意識が向く", prompt)
-        self.assertIn("誰かが傷付いていないか、誰かが不安そうでないか", prompt)
-        self.assertIn("仲間やNPCへの感情的反応が中心", prompt)
-        self.assertIn("怖がり・特定人物への依存役に固定しない", prompt)
+        self.assertIn("仲間やNPCがどうしているかに関心を持つ", prompt)
+        self.assertIn("体調、疲れ、不安、無理をしていないか、困っていないか", prompt)
+        self.assertIn("誰かを気遣ったり、人と人の関係や様子について話す", prompt)
+        self.assertIn("仲間やNPCへの反応が中心", prompt)
+        self.assertIn("怖がり役や特定人物への依存役には固定しない", prompt)
 
     def test_prompt_defines_kuro_as_unreliable_without_leaking_hidden_truth(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -333,6 +337,52 @@ class CompanionBanterTests(unittest.TestCase):
 
         self.assertIn("シナリオ上の重要度と人物の興味は別", prompt)
         self.assertIn("事件だけでなく、環境、物、身体感覚、仲間、些細なことも話題", prompt)
+
+    def test_conversation_diagnostics_tracks_chain_topics_and_response_targets(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("cliff_path")
+        first_intent = {"raw": "全員で雑談して", "action_type": "consult"}
+        continued_intent = {"raw": "全員でその話を続けて", "action_type": "consult"}
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                ["ニコ: 巨大イカの影が気になる", "クロ: ニコ、それは面白い話だ"],
+                first_intent,
+            )
+            game.remember_companion_turn(
+                ["ニコ: 巨大イカの影が気になる", "クロ: ニコ、それは面白い話だ"],
+                first_intent,
+                state,
+            )
+            game.observe_companion_turn(
+                ["ガラン: それなら巨大イカを見に行こう"], continued_intent
+            )
+            game.print_conversation_stats()
+
+        diagnostics = output.getvalue()
+        self.assertIn("[COMPANION_DIAGNOSTICS]", diagnostics)
+        self.assertIn("Character=ガラン", diagnostics)
+        self.assertIn("Trigger=会話継続", diagnostics)
+        self.assertIn("RespondedTo=クロ", diagnostics)
+        self.assertIn("Focus=行動", diagnostics)
+        self.assertIn("CompanionTurns=3", diagnostics)
+        self.assertIn("DirectResponseCount=2", diagnostics)
+        self.assertIn("ChainRate=66.7%", diagnostics)
+        self.assertIn("Topic=巨大 TurnsReferenced=2", diagnostics)
+        self.assertIn("ResponseTarget=ガラン->クロ Count=1", diagnostics)
+
+    def test_conversation_diagnostics_is_silent_without_debug(self):
+        game = self.make_game()
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                ["ピピ: みんな疲れていないかな"],
+                {"raw": "全員で雑談して", "action_type": "consult"},
+            )
+            game.print_conversation_stats()
+
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(game.companion_diagnostics["companion_turns"], 1)
 
     def test_recent_banter_is_single_turn_labeled_and_separate_from_current_event(self):
         game = self.make_game()
