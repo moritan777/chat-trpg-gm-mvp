@@ -338,6 +338,52 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("シナリオ上の重要度と人物の興味は別", prompt)
         self.assertIn("事件だけでなく、環境、物、身体感覚、仲間、些細なことも話題", prompt)
 
+    def test_conversation_diagnostics_tracks_chain_topics_and_response_targets(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("cliff_path")
+        first_intent = {"raw": "全員で雑談して", "action_type": "consult"}
+        continued_intent = {"raw": "全員でその話を続けて", "action_type": "consult"}
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                ["ニコ: 巨大イカの影が気になる", "クロ: ニコ、それは面白い話だ"],
+                first_intent,
+            )
+            game.remember_companion_turn(
+                ["ニコ: 巨大イカの影が気になる", "クロ: ニコ、それは面白い話だ"],
+                first_intent,
+                state,
+            )
+            game.observe_companion_turn(
+                ["ガラン: それなら巨大イカを見に行こう"], continued_intent
+            )
+            game.print_conversation_stats()
+
+        diagnostics = output.getvalue()
+        self.assertIn("[COMPANION_DIAGNOSTICS]", diagnostics)
+        self.assertIn("Character=ガラン", diagnostics)
+        self.assertIn("Trigger=会話継続", diagnostics)
+        self.assertIn("RespondedTo=クロ", diagnostics)
+        self.assertIn("Focus=行動", diagnostics)
+        self.assertIn("CompanionTurns=3", diagnostics)
+        self.assertIn("DirectResponseCount=2", diagnostics)
+        self.assertIn("ChainRate=66.7%", diagnostics)
+        self.assertIn("Topic=巨大 TurnsReferenced=2", diagnostics)
+        self.assertIn("ResponseTarget=ガラン->クロ Count=1", diagnostics)
+
+    def test_conversation_diagnostics_is_silent_without_debug(self):
+        game = self.make_game()
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                ["ピピ: みんな疲れていないかな"],
+                {"raw": "全員で雑談して", "action_type": "consult"},
+            )
+            game.print_conversation_stats()
+
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(game.companion_diagnostics["companion_turns"], 1)
+
     def test_recent_banter_is_single_turn_labeled_and_separate_from_current_event(self):
         game = self.make_game()
         state = State("cliff_path")

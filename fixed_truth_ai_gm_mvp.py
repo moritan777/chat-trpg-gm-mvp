@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.18
+Chat-style TTRPG GM MVP v2.15.19
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -15,13 +15,14 @@ import json
 import math
 import os
 import random
+import re
 import sys
 import time
 import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.18 [broaden-companion-ranges]"
+VERSION = "v2.15.19 [conversation-chain-observability]"
 
 
 class State:
@@ -53,6 +54,13 @@ class Game:
         self.emb_disabled = False
         self.last_banter = {}
         self.last_companion_turn = {}
+        self.companion_diagnostics = {
+            "companion_turns": 0,
+            "direct_responses": 0,
+            "response_targets": {},
+            "topic_turns": {},
+            "observed_turns": 0,
+        }
         self.last_embedding = {}
         for dct in (self.objects, self.npcs, self.locs):
             for key, value in dct.items():
@@ -236,6 +244,97 @@ class Game:
                 "action": it.get("action_type"),
             },
         }
+
+    def companion_speaker(self, line):
+        """Return the companion name at the start of a rendered dialogue line."""
+        text = str(line).strip()
+        return next((name for name in self.companion_names() if text.startswith(name)), "")
+
+    def companion_focus(self, line):
+        """Classify a line for diagnostics only; never influence generation."""
+        categories = [
+            ("段取り", ("段取り", "準備", "装備", "順番", "役割", "時間", "持って")),
+            ("仲間の様子", ("体調", "疲れ", "無理", "大丈夫", "心配", "様子", "休")),
+            ("行動", ("やる", "行こう", "試す", "開け", "押す", "壊す", "登る")),
+            ("観察", ("違和感", "音", "匂い", "形", "見える", "気になる")),
+            ("面白さ", ("面白", "すごい", "騒ぎ", "俺なら", "実は")),
+        ]
+        return next((label for label, words in categories if any(word in line for word in words)), "その他")
+
+    def companion_topics(self, lines):
+        """Extract repeated surface terms as a deliberately lightweight topic signal."""
+        ignored = {
+            "全員", "仲間", "今回", "自分", "大丈夫", "段取り", "準備", "装備",
+            "時間", "役割", "体調", "様子", "気持ち", "本当", "一緒", "問題",
+        }
+        topics = set()
+        for line in lines:
+            dialogue = re.sub(r"^[^:：「『]+[:：]?[「『]?", "", str(line))
+            for term in re.findall(r"[ァ-ヶー]{2,}|[一-龠]{2,}", dialogue):
+                if term not in ignored and not any(name in term for name in self.companion_names()):
+                    topics.add(term)
+        return topics
+
+    def observe_companion_turn(self, lines, it):
+        """Collect and print non-invasive conversation-chain diagnostics."""
+        companion_lines = [str(line).strip() for line in lines if self.companion_speaker(line)]
+        if not companion_lines:
+            return
+        stats = self.companion_diagnostics
+        stats["observed_turns"] += 1
+        turn_number = stats["observed_turns"]
+        prior_speakers = [self.companion_speaker(line) for line in self.recent_companion_lines()]
+        seen_speakers = [name for name in prior_speakers if name]
+        continuation = self.continues_companion_conversation(it.get("raw", ""))
+        reaction_cues = ("それ", "その", "そう", "たしかに", "確かに", "でも", "じゃあ", "なら", "うん", "いや")
+
+        for line in companion_lines:
+            speaker = self.companion_speaker(line)
+            mentioned = [name for name in seen_speakers if name != speaker and name in line]
+            responded_to = mentioned[-1] if mentioned else ""
+            if not responded_to and continuation and any(cue in line for cue in reaction_cues):
+                responded_to = next((name for name in reversed(seen_speakers) if name != speaker), "")
+            stats["companion_turns"] += 1
+            if responded_to:
+                stats["direct_responses"] += 1
+                key = f"{speaker}->{responded_to}"
+                stats["response_targets"][key] = stats["response_targets"].get(key, 0) + 1
+            if self.debug_llm or self.debug:
+                print("[COMPANION_DIAGNOSTICS]")
+                print("Character=" + speaker)
+                print("Trigger=" + ("会話継続" if continuation else "場面反応"))
+                print("RespondedTo=" + (responded_to or "なし"))
+                print("Focus=" + self.companion_focus(line))
+            seen_speakers.append(speaker)
+
+        for topic in self.companion_topics(companion_lines):
+            stats["topic_turns"].setdefault(topic, set()).add(turn_number)
+
+    def print_conversation_stats(self):
+        """Print aggregate diagnostics at session end when debugging is enabled."""
+        if not (self.debug_llm or self.debug):
+            return
+        stats = self.companion_diagnostics
+        total = stats["companion_turns"]
+        direct = stats["direct_responses"]
+        rate = (direct / total * 100.0) if total else 0.0
+        repeated_topics = {
+            topic: len(turns) for topic, turns in stats["topic_turns"].items() if len(turns) >= 2
+        }
+        maintained_turns = set()
+        for topic in repeated_topics:
+            maintained_turns.update(stats["topic_turns"][topic])
+        observed = stats["observed_turns"]
+        topic_rate = (len(maintained_turns) / observed * 100.0) if observed else 0.0
+        print("[CONVERSATION_STATS]")
+        print(f"CompanionTurns={total}")
+        print(f"DirectResponseCount={direct}")
+        print(f"ChainRate={rate:.1f}%")
+        print(f"TopicMaintenanceRate={topic_rate:.1f}%")
+        for topic, count in sorted(repeated_topics.items(), key=lambda item: (-item[1], item[0])):
+            print(f"Topic={topic} TurnsReferenced={count}")
+        for pair, count in sorted(stats["response_targets"].items()):
+            print(f"ResponseTarget={pair} Count={count}")
 
     def debug_companion_history(self, heading, history=None, action=None, reason=None):
         if not (self.debug_llm or self.debug):
@@ -1859,6 +1958,7 @@ class Game:
             new_notes[insert_at:insert_at] = companion_rendered
 
         self.last_table_turn = {"canonical_gm": canonical_gm, "output": out, "packet": packet}
+        self.observe_companion_turn(companion_rendered, it)
         self.remember_companion_turn(companion_rendered, it, st)
         self.debug_companion_history("CompanionHistoryAfter")
         self.debug_companion_history(
@@ -1878,6 +1978,7 @@ class Game:
         packet = self.packet(it, ev, st)
         out = self.llm_chat(packet)
         self.last_banter = {"output": out, "safe_packet": packet}
+        self.observe_companion_turn(out.splitlines(), it)
         self.remember_companion_turn(out.splitlines(), it, st)
         return out if out and "```" not in out else ""
 
@@ -1946,6 +2047,7 @@ def main():
         print("\n" + "\n".join(notes) + (("\n" + b) if b else ""))
     if st.ended:
         print("\nセッション終了。")
+    game.print_conversation_stats()
 
 
 if __name__ == "__main__":

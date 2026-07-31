@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.18 仲間キャラクター幅拡張** (`v2.15.18 [broaden-companion-ranges]`)
+現行版: **v2.15.19 会話連鎖観測モード** (`v2.15.19 [conversation-chain-observability]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -59,6 +59,26 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 * **ピピ:** 人への関心・気遣い
 
 新しい仲間を追加するときも、固定的な「担当」を割り当てるのではなく、**キャラは役割ではなく認知軸で差別化する**ことを設計指針とします。
+
+### 会話連鎖の観測
+
+`--debug-llm`または`--debug-all`を指定すると、仲間の各発言について`[COMPANION_DIAGNOSTICS]`を表示します。これは生成済みの発言を簡易分類する観測機能であり、発言内容や発言機会を変更するものではありません。
+
+* `Character`: 発言者
+* `Trigger`: 通常の場面反応か、明示的な会話継続か
+* `RespondedTo`: 名前への言及、または継続発言の反応表現から推定した反応先
+* `Focus`: 発言内の語から簡易分類した関心対象
+
+セッション終了時には`[CONVERSATION_STATS]`として、仲間発言数、直接反応数、会話連鎖率、テーマ維持率、繰り返し参照されたテーマ、キャラクター別の反応先を集計します。反応先とテーマは軽量な文字列ヒューリスティックによる観測値であり、意味解析による厳密な判定ではありません。
+
+会話連鎖の耐久観測には`story_5companions_chain_test.txt`を利用できます。
+
+```powershell
+python .\fixed_truth_ai_gm_mvp.py `
+  --scenario-dir scenario_lighthouse_from_md_v2150 `
+  --script story_5companions_chain_test.txt `
+  --debug-llm
+```
 
 ---
 
