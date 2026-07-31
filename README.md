@@ -1,4 +1,7 @@
 # Chat TTRPG GM MVP
+
+現行版: **v2.15.17 仲間アーキタイプ2名追加** (`v2.15.17 [two-more-companion-archetypes]`)
+
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
 
@@ -39,6 +42,8 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 * NPCごとの話題管理
 * LLMによるGM描写
 * 卓の参加者らしい仲間同士の雑談
+* 指定した仲間による同一場面内の会話継続
+* クロ（ホラ吹き）とガラン（行動派）を含む5人の仲間アーキタイプ
 * Embeddingによる行動判定
 
 ---
@@ -81,6 +86,88 @@ $env:LLAMA_CPP_BASE_URL="http://127.0.0.1:8080/v1"
 ```powershell
 $env:EMBEDDING_BASE_URL="http://127.0.0.1:8081/v1"
 ```
+
+### LLM / Embeddingパラメータ一覧
+
+READMEを実行設定の正本とします。値はプロセス環境から読み込みます。
+
+| 環境変数 | 役割・主な使用経路 | 既定値・上書き関係 |
+| --- | --- | --- |
+| `LLM_PROVIDER` | LLM経路の有効化。`none`でローカルLLM呼び出しを無効化 | `llama_cpp` |
+| `LLAMA_CPP_BASE_URL` | OpenAI互換LLM APIのベースURL | `http://127.0.0.1:8080/v1`。未設定時は旧互換の`LLM_BASE_URL`、`OPENAI_BASE_URL`の順に参照 |
+| `TABLE_TURN_TEMPERATURE` | GM描写と仲間発言を統合生成するTable Turn経路 | `0.9`。未設定時は`GM_LINE_REWRITE_TEMPERATURE`を参照 |
+| `GM_LINE_REWRITE_TEMPERATURE` | Table Turn温度の旧互換フォールバック | 単独の既定値なし。両方未設定ならTable Turnは`0.9` |
+| `GM_REWRITE_TEMPERATURE` | Table Turnが使えない場合などのGM文書き換え経路 | 未設定時は`GM_COMMENTARY_TEMPERATURE`、さらに未設定なら`0.45` |
+| `GM_COMMENTARY_TEMPERATURE` | GM文書き換え温度の旧互換フォールバック | 単独の既定値なし。上記経路の最終既定値は`0.45` |
+| `BANTER_TEMPERATURE` | 旧来の独立した仲間会話生成経路。Table Turn温度とは別 | `0.75` |
+| `EMBEDDING_BASE_URL` | OpenAI互換Embedding APIのベースURL | `http://127.0.0.1:8081/v1`。未設定時は旧互換の`EMB_BASE_URL`を参照 |
+| `DISCOVERY_DISPLAY` | 正式発見の表示方法（`gm` / `both` / `tag`） | `gm` |
+
+### Table Turn生成温度
+
+`TABLE_TURN_TEMPERATURE`は、GM描写と仲間発言を一度に生成するTable Turnレンダリングの`temperature`を指定します。既定値は**0.9**、通常利用の目安は**0.8〜1.0**、推奨開始値は**0.9**です。低温度・高温度の利用を禁止する範囲指定ではありません。
+
+温度の優先順位は実装上、次のとおりです。主設定には`TABLE_TURN_TEMPERATURE`を推奨します。
+
+1. `TABLE_TURN_TEMPERATURE`
+2. `GM_LINE_REWRITE_TEMPERATURE`（旧互換）
+3. 既定値`0.9`
+
+`BANTER_TEMPERATURE`は旧来の独立した仲間会話経路用であり、統合Table Turnには使われません。`GM_REWRITE_TEMPERATURE`、`GM_COMMENTARY_TEMPERATURE`、Embedding設定、LLMサーバー自体のsampling設定も今回のTable Turn設定とは別です。
+
+PowerShellで現在のセッションに設定し、通常どおり起動する例:
+
+```powershell
+$env:TABLE_TURN_TEMPERATURE="0.9"
+
+python .\fixed_truth_ai_gm_mvp.py `
+  --scenario-dir scenario_lighthouse_from_md_v2150 `
+  --script story_banter_v2152.txt `
+  --dice-total 3 `
+  --debug-judge `
+  --debug-llm
+```
+
+現在値の確認と、設定を解除して既定値へ戻す方法:
+
+```powershell
+echo $env:TABLE_TURN_TEMPERATURE
+Remove-Item Env:TABLE_TURN_TEMPERATURE -ErrorAction SilentlyContinue
+```
+
+`$env:`による設定は、原則として現在のPowerShellプロセスと、そこから起動した子プロセスにだけ適用されます。永続設定ではありません。`GM_LINE_REWRITE_TEMPERATURE`も設定されている場合、Table Turnを完全に既定値へ戻すには同様に解除してください。
+
+比較試験で観察された目安は次のとおりです。絶対的な品質保証ではありません。
+
+* **0.7（安定寄り）:** 発言者や行数が同じ型へ寄りやすい場合があります。
+* **0.9（既定値）:** 安定性を保ちながら、仲間の発言者・順序・行数へ適度な揺れを与えます。
+* **1.0（多様性寄り）:** 発言者順の揺れが増える一方、短すぎる発言や描写の振れが増える場合があります。
+
+実際の傾向は、使用モデル、量子化、sampling設定、シナリオ内容によって変わります。高温度では会話の多様性が増える一方、Canonical外の推測、曖昧な発言、内容の薄い短文が増える可能性があります。正式発見はエンジンが原文表示しますが、LLM生成GM文や仲間の仮説には揺れが生じ得ます。
+
+#### 温度の比較試験
+
+同じコマンドを、温度だけを`0.7`、`0.9`、`1.0`へ変えて複数回実行します。
+
+```powershell
+$env:TABLE_TURN_TEMPERATURE="0.7"
+python .\fixed_truth_ai_gm_mvp.py `
+  --scenario-dir scenario_lighthouse_from_md_v2150 `
+  --script story_banter_v2152.txt `
+  --dice-total 3 `
+  --debug-judge `
+  --debug-llm
+
+$env:TABLE_TURN_TEMPERATURE="0.9"
+# 同じpythonコマンドを複数回実行
+
+$env:TABLE_TURN_TEMPERATURE="1.0"
+# 同じpythonコマンドを複数回実行
+```
+
+同じシナリオ、スクリプト、`dice-total`を使い、他の生成設定を同時に変えないでください。`--debug-llm`の`[TABLE_TURN_TEMPERATURE]`で実際の値を確認します。人間による定性的確認として、仲間行数、発言者順、ニコ・リュート・ピピの登場回数、仲間への働きかけ、短い応答、Canonical外情報、内容の薄い短文、正式発見の表示を観察します。
+
+温度には数値を指定してください。不正値は暗黙に置換・丸めせず、原因となった環境変数名と値を示すエラーになります。
 
 ### 発見表示
 

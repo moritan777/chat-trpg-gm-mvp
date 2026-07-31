@@ -1,8 +1,10 @@
 import json
+import io
 import os
 import re
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -163,12 +165,68 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("最初から仲間へ話しかけてもよい", prompt)
         self.assertIn("独立コメントより働きかけと短い応答が自然なら選べる", prompt)
         instructions = "".join(user_packet["instructions"])
-        self.assertIn("仲間発言は0〜3行", instructions)
+        self.assertIn("仲間発言は0〜5行", instructions)
         self.assertIn("自然なら仲間への働きかけと短い応答を選べる", instructions)
         self.assertNotIn("全員を一度ずつ", instructions)
         self.assertNotIn("同じ人物が短く再応答", instructions)
-        self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
+        self.assertIn("GM本文は確定事実と中立的な観察だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
+
+    def test_table_turn_temperature_default_fallback_and_priority(self):
+        game = self.make_game()
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(game.table_turn_temperature(), 0.9)
+        with patch.dict(os.environ, {"GM_LINE_REWRITE_TEMPERATURE": "0.8"}, clear=True):
+            self.assertEqual(game.table_turn_temperature(), 0.8)
+        with patch.dict(
+            os.environ,
+            {"TABLE_TURN_TEMPERATURE": "1.0", "GM_LINE_REWRITE_TEMPERATURE": "0.6"},
+            clear=True,
+        ):
+            self.assertEqual(game.table_turn_temperature(), 1.0)
+
+    def test_invalid_table_turn_temperature_names_source_variable(self):
+        game = self.make_game()
+        with patch.dict(os.environ, {"TABLE_TURN_TEMPERATURE": "abc"}, clear=True):
+            with self.assertRaisesRegex(
+                ValueError,
+                r"Invalid TABLE_TURN_TEMPERATURE: abc.*numeric value",
+            ):
+                game.table_turn_temperature()
+
+    def test_debug_log_reports_effective_table_turn_temperature_only_when_enabled(self):
+        state = State("cliff_path")
+
+        def render(debug_llm, environment=None):
+            game = Game(self.temp_dir.name, debug_llm=debug_llm)
+            game.post_json = lambda url, body, timeout, tag: {
+                "choices": [{"message": {"content": "GM: ランタンを見る。"}}]
+            }
+            output = io.StringIO()
+            with patch.dict(
+                os.environ,
+                {"LLM_PROVIDER": "llama_cpp", **(environment or {})},
+                clear=True,
+            ), redirect_stdout(output):
+                game.render_table_turn(
+                    ["GM: ランタンを見る。"],
+                    {"raw": "ランタンを見る", "action_type": "inspect", "target_id": "broken_lantern"},
+                    {"status": "ok", "category": "no_reveal"},
+                    [],
+                    state,
+                )
+            return output.getvalue()
+
+        self.assertIn("[TABLE_TURN_TEMPERATURE] 0.9", render(True))
+        self.assertIn(
+            "[TABLE_TURN_TEMPERATURE] 1.0",
+            render(True, {"TABLE_TURN_TEMPERATURE": "1.0"}),
+        )
+        self.assertIn(
+            "[TABLE_TURN_TEMPERATURE] 0.8",
+            render(True, {"GM_LINE_REWRITE_TEMPERATURE": "0.8"}),
+        )
+        self.assertNotIn("[TABLE_TURN_TEMPERATURE]", render(False))
 
     def test_system_prompt_prioritizes_observation_without_weakening_discovery(self):
         game = self.make_game()
@@ -192,8 +250,8 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("行動、観察可能な状態、場面", prompt)
         self.assertIn("正式発見は後続のGM行で原文表示されるため詳しく反復しない", prompt)
         self.assertIn("canonical_gm_textに沿い", prompt)
-        self.assertIn("Canonical外の犯人、動機、意図、背景事情、証拠隠滅、正解行動を追加しない", prompt)
-        self.assertIn("硬いシステム文や攻略案内にしない", prompt)
+        self.assertIn("Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない", prompt)
+        self.assertIn("本人の反応をGM本文で先回りしない", prompt)
         self.assertLessEqual(len(prompt), 1850)
         self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1320)
 
@@ -211,10 +269,13 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("独立コメントより働きかけと短い応答が自然なら選べる", prompt)
         self.assertIn("短い応答で終了してよく", prompt)
         self.assertIn("掛け合いは必須ではない", prompt)
-        self.assertIn("仲間発言は0〜3行", prompt)
+        self.assertIn("仲間発言は0〜5行", prompt)
         self.assertIn("同じ人物の短い再応答もよい", prompt)
-        self.assertIn("全員や3行を埋めない", prompt)
+        self.assertIn("全員や5行を埋めない", prompt)
         self.assertNotIn("0〜3人", prompt)
+        self.assertIn("conversation_context.mode=continue", prompt)
+        self.assertIn("requested_companionsがあればその人物を優先", prompt)
+        self.assertIn("全員指定なら自然な範囲で全員参加を優先", prompt)
 
     def test_prompt_allows_natural_closure_of_directed_companion_actions(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -229,7 +290,7 @@ class CompanionBanterTests(unittest.TestCase):
 
         self.assertIn("場面へ感想を述べても、最初から仲間へ話しかけてもよい", prompt)
         self.assertIn("独り言、沈黙、無視も自然なら許可", prompt)
-        self.assertIn("仲間発言は0〜3行", prompt)
+        self.assertIn("仲間発言は0〜5行", prompt)
         self.assertIn("同じ人物の短い再応答もよい", prompt)
 
     def test_prompt_broadens_each_companion_beyond_evidence_roles(self):
@@ -241,6 +302,22 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("冗談役に固定しない", prompt)
         self.assertIn("感情、雰囲気、物、仲間", prompt)
         self.assertIn("怖がり・特定人物への依存役に固定しない", prompt)
+
+    def test_prompt_defines_kuro_as_unreliable_without_leaking_hidden_truth(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("【クロ】", prompt)
+        self.assertIn("見栄、ホラ話、勘違い、自信満々な推測", prompt)
+        self.assertIn("正しい必要はない", prompt)
+        self.assertIn("未発見情報や真相を事実として知っているわけではない", prompt)
+
+    def test_prompt_defines_garan_as_action_oriented_not_an_analyst(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("【ガラン】", prompt)
+        self.assertIn("試す、開ける、押す、壊す、登る", prompt)
+        self.assertIn("分析役にならず", prompt)
+        self.assertIn("単純で雑な解決案", prompt)
 
     def test_prompt_treats_non_investigative_curiosity_as_normal(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -285,6 +362,131 @@ class CompanionBanterTests(unittest.TestCase):
 
         game.remember_companion_turn([], current_intent, state)
         self.assertEqual(game.recent_companion_lines(), [])
+
+    def test_location_change_keeps_history_metadata_but_omits_previous_lines(self):
+        game = self.make_game()
+        state = State("harbor")
+        old_intent = {"raw": "村長の話を聞く", "action_type": "ask", "target_id": "village_head"}
+        game.remember_companion_turn(["リュート: 倉庫なら隠れやすいな。"], old_intent, state)
+
+        state.location = "warehouse"
+        packet = game.packet(
+            {"raw": "倉庫へ移動する", "action_type": "move", "target_id": "warehouse"},
+            [],
+            state,
+        )
+        history = packet["recent_companion_lines"]
+
+        self.assertEqual(history["previous_scene"]["location"], "港")
+        self.assertEqual(history["lines"], [])
+        self.assertIn("場所が変わったため", history["usage"])
+
+    def test_same_location_and_target_retains_reference_history(self):
+        game = self.make_game()
+        state = State("warehouse")
+        intent = {"raw": "航路図を見る", "action_type": "inspect", "target_id": "old_chart"}
+        game.remember_companion_turn(["ニコ: 丸があるね。"], intent, state)
+
+        history = game.packet(intent, [], state)["recent_companion_lines"]
+
+        self.assertEqual(history["lines"], ["ニコ: 丸があるね。"])
+        self.assertIn("コピーや言い換え再出力は禁止", history["usage"])
+
+    def test_blocked_chart_canonical_is_neutral_before_table_rendering(self):
+        game = self.make_game()
+        state = State("warehouse")
+        chart_discovery = game.disc["smuggler_route_analysis"]
+        intent = {"raw": "航路図を解析する", "action_type": "skill_check", "target_id": "old_chart"}
+
+        canonical = game.gm_comment_for_blocked_discoverable(
+            chart_discovery,
+            intent,
+            state,
+            missing_all=["tide_log_cave_time", "crate_blue_mark"],
+        )
+
+        self.assertEqual(
+            canonical,
+            "GM: 古い航路図を確認した。今の確認では、それ以上のことは分からない。",
+        )
+
+    def test_direct_companion_request_uses_consult_handoff_without_preempting_response(self):
+        for raw, name in (("ピピ、怖い話をして", "ピピ"), ("ニコ、踊って", "ニコ")):
+            with self.subTest(raw=raw):
+                game = self.make_game()
+                state = State("harbor")
+                game.embedded_action_intent = lambda text, allowed=None: ("consult", "test")
+
+                intent = game.judge(raw, state)
+                notes, result, events = game.resolve(intent, state)
+
+                self.assertEqual(intent["action_type"], "consult")
+                self.assertEqual(intent["target_id"], "companion:" + name)
+                self.assertEqual(notes, [f"GM: {name}に意見を求めます。"])
+                self.assertEqual(result["category"], "consult")
+                self.assertEqual(events, [{"type": "consult", "name": name}])
+
+    def test_continuation_context_exposes_same_scene_line_and_requested_responder(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.remember_companion_turn(
+            ["ニコ: 霧の中に巨大なイカがいるかも。"],
+            {"raw": "ニコ変なこと言って", "action_type": "consult", "target_id": "companion:ニコ"},
+            state,
+        )
+
+        packet = game.packet(
+            {"raw": "リュート反応して", "action_type": "consult", "target_id": "companion:リュート"},
+            [],
+            state,
+        )
+
+        self.assertEqual(packet["requested_companions"], ["リュート"])
+        self.assertEqual(packet["conversation_context"]["mode"], "continue")
+        self.assertEqual(
+            packet["conversation_context"]["previous_companion_lines"],
+            ["ニコ: 霧の中に巨大なイカがいるかも。"],
+        )
+
+    def test_continuation_context_respects_location_history_boundary(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.remember_companion_turn(
+            ["ニコ: 港の霧って変だね。"],
+            {"action_type": "consult", "target_id": "companion:ニコ"},
+            state,
+        )
+        state.location = "warehouse"
+
+        packet = game.packet(
+            {"raw": "リュートも混ざって", "action_type": "consult", "target_id": "companion:リュート"},
+            [],
+            state,
+        )
+
+        self.assertEqual(packet["conversation_context"]["previous_companion_lines"], [])
+        self.assertEqual(packet["recent_companion_lines"]["lines"], [])
+
+    def test_named_and_group_requests_are_structured_as_participant_preferences(self):
+        game = self.make_game()
+        state = State("harbor")
+
+        named = game.packet(
+            {"raw": "ニコとピピで話して", "action_type": "consult", "target_id": "companion:ニコ"},
+            [],
+            state,
+        )
+        game.embedded_action_intent = lambda text, allowed=None: ("consult", "test")
+        everyone_intent = game.judge("全員で雑談して", state)
+        everyone = game.packet(everyone_intent, [], state)
+
+        self.assertEqual(named["requested_companions"], ["ニコ", "ピピ"])
+        self.assertNotIn("conversation_context", named)
+        self.assertEqual(everyone_intent["action_type"], "consult")
+        self.assertEqual(
+            everyone["requested_companions"],
+            ["ニコ", "ピピ", "リュート", "クロ", "ガラン"],
+        )
 
     def test_table_renderer_reads_history_then_saves_current_response_once(self):
         game = self.make_game()
@@ -457,6 +659,53 @@ class CompanionBanterTests(unittest.TestCase):
         )
 
         self.assertEqual(game.recent_companion_lines(), lines)
+
+    def test_companion_history_can_retain_one_line_for_each_archetype(self):
+        game = self.make_game()
+        state = State("harbor")
+        lines = [f"{name}: 一言。" for name in game.companion_names()]
+
+        game.remember_companion_turn(
+            lines,
+            {"raw": "全員で話して", "action_type": "consult", "target_id": "companion:全員"},
+            state,
+        )
+
+        self.assertEqual(game.recent_companion_lines(), lines)
+
+    def test_new_companions_are_recognized_in_history_and_rendered_output(self):
+        game = self.make_game()
+        state = State("harbor")
+        intent = {"raw": "クロとガランで話して", "action_type": "consult", "target_id": "companion:クロ"}
+        game.remember_companion_turn(
+            ["クロ: 昨日見たぞ。", "ガラン: 捕まえよう。"],
+            intent,
+            state,
+        )
+
+        self.assertEqual(
+            game.recent_companion_lines(),
+            ["クロ: 昨日見たぞ。", "ガラン: 捕まえよう。"],
+        )
+        self.assertEqual(game.requested_companions(intent["raw"]), ["クロ", "ガラン"])
+
+        game.post_json = lambda url, body, timeout, tag: {
+            "choices": [{"message": {"content": "GM: 二人に話を振る。\nクロ: 俺は見たぞ。\nガラン: なら捕まえよう。"}}]
+        }
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
+            rendered, _ = game.render_table_turn(
+                ["GM: 二人に話を振る。"],
+                intent,
+                {"status": "ok", "category": "consult"},
+                [],
+                state,
+            )
+
+        self.assertEqual(
+            rendered,
+            ["GM: 二人に話を振る。", "クロ: 俺は見たぞ。", "ガラン: なら捕まえよう。"],
+        )
+        self.assertEqual(game.recent_companion_lines(), ["クロ: 俺は見たぞ。", "ガラン: なら捕まえよう。"])
 
     def test_invalid_unified_responses_clear_history_without_second_llm_call(self):
         for response in ("", "```invalid```", "GM: 弁を調べた。\n発見: 禁止ラベル"):
