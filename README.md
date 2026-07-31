@@ -317,6 +317,23 @@ Lint
 期待結果チェック
 ```
 
+引数とオプション:
+
+| 引数 / オプション | 必須 | 説明 | 既定値 |
+| --- | --- | --- | --- |
+| `author_md` | はい | 変換する作者向けシナリオ Markdown | - |
+| `out_dir` | はい | `scenario.json`、テスト期待値、入力スクリプトの出力先 | - |
+| `--engine PATH` | いいえ | 自動テストに使う GM エンジン | `fixed_truth_ai_gm_mvp.py` |
+| `--test-timeout SECONDS` | いいえ | 各テストに許可する秒数（0 より大きい値） | `120` |
+| `--debug-judge` | いいえ | 判定経路のデバッグ出力を有効化。サンプルシナリオの期待結果確認に必要 | 無効 |
+| `--debug-llm` | いいえ | LLM のデバッグ出力を有効化 | 無効 |
+| `--debug-embedding` | いいえ | Embedding のデバッグ出力を有効化 | 無効 |
+| `--debug-all` | いいえ | 上記すべてのデバッグ出力を有効化 | 無効 |
+
+`author_scenario_lighthouse_v2150.md` のテスト期待値には、判定経路を示す
+`[GoalPath]` が含まれます。このサンプルを検証するときは `--debug-judge`（または
+`--debug-all`）を指定してください。
+
 ---
 
 ## fixed_truth_ai_gm_mvp.py
@@ -361,7 +378,8 @@ python .\run_authoring_pipeline.py `
   .\author_scenario_lighthouse_v2150.md `
   .\scenario_lighthouse `
   --engine .\fixed_truth_ai_gm_mvp.py `
-  --test-timeout 120
+  --test-timeout 120 `
+  --debug-judge
 ```
 
 ---
