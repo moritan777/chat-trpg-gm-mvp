@@ -158,16 +158,15 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         prompt = captured[0][1]["messages"][0]["content"]
         user_packet = json.loads(captured[0][1]["messages"][1]["content"])
-        self.assertIn("GMの発見結果を説明し直したり", prompt)
-        self.assertIn("毎回原因や次の行動を推理したりする必要はない", prompt)
-        self.assertIn("最初の仲間も独り言だけでなく", prompt)
-        self.assertIn("働きかけと短い応答が自然ならその形を選んでよい", prompt)
+        self.assertIn("【出力契約・必須】", prompt)
+        self.assertIn("【会話・任意】", prompt)
+        self.assertIn("最初から仲間へ話しかけてもよい", prompt)
+        self.assertIn("独立コメントより働きかけと短い応答が自然なら選べる", prompt)
         instructions = "".join(user_packet["instructions"])
         self.assertIn("仲間発言は0〜3行", instructions)
-        self.assertIn("最初の仲間も別の仲間へ話しかけてよく", instructions)
-        self.assertIn("独立コメントの列より短い働きかけと応答を選べる", instructions)
-        self.assertIn("同じ人物が短く再応答してよい", instructions)
-        self.assertIn("全員を一度ずつ出す必要はない", instructions)
+        self.assertIn("自然なら仲間への働きかけと短い応答を選べる", instructions)
+        self.assertNotIn("全員を一度ずつ", instructions)
+        self.assertNotIn("同じ人物が短く再応答", instructions)
         self.assertIn("GM本文は確定事実だけ", "".join(user_packet["instructions"]))
         self.assertEqual((state.location, state.discovered), before)
 
@@ -190,82 +189,64 @@ class CompanionBanterTests(unittest.TestCase):
             )
 
         prompt = captured[0]["messages"][0]["content"]
-        self.assertIn("観察事実を述べる", prompt)
-        self.assertIn("正式発見はエンジンが後続のGM行として原文表示", prompt)
-        self.assertIn("LLMのGM本文では詳しく反復しない", prompt)
-        self.assertIn("canonical_gm_textに沿って", prompt)
-        self.assertIn("犯人、動機、意図、背景事情、証拠隠滅、次の正解行動を追加しない", prompt)
-        self.assertIn("硬い報告書や検査報告の口調にはしない", prompt)
+        self.assertIn("行動、観察可能な状態、場面", prompt)
+        self.assertIn("正式発見は後続のGM行で原文表示されるため詳しく反復しない", prompt)
+        self.assertIn("canonical_gm_textに沿い", prompt)
+        self.assertIn("Canonical外の犯人、動機、意図、背景事情、証拠隠滅、正解行動を追加しない", prompt)
+        self.assertIn("硬いシステム文や攻略案内にしない", prompt)
+        self.assertLessEqual(len(prompt), 1850)
+        self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1320)
 
     def test_prompt_separates_fact_priority_from_conversation_focus(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("事実としては現在のGM事実、今回の正式な開示", prompt)
-        self.assertIn("話題はGMの最後の一文に従属せず", prompt)
-        self.assertIn("仲間の冗談、仮説、勘違い、過去会話は事実の根拠ではない", prompt)
+        self.assertIn("事実は現在のGM事実、正式発見、場所・対象・行動、過去の公開情報だけ", prompt)
+        self.assertIn("仮説、冗談、勘違い、過去の仲間台詞を確定事実や攻略情報にしない", prompt)
         self.assertIn("過去台詞をコピーまたは言い換え再出力しない", prompt)
 
     def test_prompt_encourages_dialogue_without_fixed_consensus(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("事件解決だけでなく人物関係と卓の空気も作る", prompt)
-        self.assertIn("GMへの独立コメントを並べるより", prompt)
-        self.assertIn("働きかけと短い応答が自然ならその形を選んでよい", prompt)
-        self.assertIn("同じ発見へ全員が別コメントを出す必要もない", prompt)
-        self.assertIn("仲間同士の話題からGMへ戻る必要", prompt)
-        self.assertIn("相手は自然なら短く応答でき、そこで終えてよい", prompt)
+        self.assertIn("人物関係と卓の空気を作る参加者", prompt)
+        self.assertIn("独立コメントより働きかけと短い応答が自然なら選べる", prompt)
+        self.assertIn("短い応答で終了してよく", prompt)
         self.assertIn("掛け合いは必須ではない", prompt)
         self.assertIn("仲間発言は0〜3行", prompt)
-        self.assertIn("同じ人物が短い再応答で再び話してよい", prompt)
-        self.assertIn("全員を一度ずつ出す必要はなく", prompt)
+        self.assertIn("同じ人物の短い再応答もよい", prompt)
+        self.assertIn("全員や3行を埋めない", prompt)
         self.assertNotIn("0〜3人", prompt)
 
     def test_prompt_allows_natural_closure_of_directed_companion_actions(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("名前を呼ぶ、質問や同意を求める、注意する、助けを頼む", prompt)
-        self.assertIn("物を見せる、ツッコむ、茶化す、袖を掴む", prompt)
-        self.assertIn("相手は自然なら短く応答でき", prompt)
-        self.assertIn("独り言、沈黙、無視が自然なら会話を強制しない", prompt)
+        self.assertIn("最初から仲間へ話しかけてもよい", prompt)
+        self.assertIn("短い応答で終了してよく", prompt)
+        self.assertIn("独り言、沈黙、無視も自然なら許可", prompt)
         self.assertIn("掛け合いは必須ではない", prompt)
 
     def test_prompt_allows_first_companion_to_initiate_an_exchange(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("最初の仲間も独り言だけでなく、別の仲間へ言葉や行動を向けてよい", prompt)
-        self.assertIn("場面への感想と仲間への働きかけは、どちらも自然な発言", prompt)
-        self.assertIn("人物関係を作る発言は事件解決に役立たなくてもよい", prompt)
-        self.assertIn("独り言、沈黙、無視が自然なら会話を強制しない", prompt)
+        self.assertIn("場面へ感想を述べても、最初から仲間へ話しかけてもよい", prompt)
+        self.assertIn("独り言、沈黙、無視も自然なら許可", prompt)
         self.assertIn("仲間発言は0〜3行", prompt)
-        self.assertIn("同じ人物が短い再応答で再び話してよい", prompt)
+        self.assertIn("同じ人物の短い再応答もよい", prompt)
 
     def test_prompt_broadens_each_companion_beyond_evidence_roles(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("証拠をまとめる解説役ではない", prompt)
-        self.assertIn("足場、作業の負担、道具、仲間の安全", prompt)
-        self.assertIn("推理もするが", prompt)
-        self.assertIn("ツッコミ、気遣い、便乗、沈黙を選べる", prompt)
-        self.assertIn("事件仮説に限らず", prompt)
-        self.assertIn("妙な例え", prompt)
-        self.assertIn("妙な例え、疑問、使い道", prompt)
-        self.assertIn("身体感覚、急な脱線", prompt)
-        self.assertIn("有益である必要もなく", prompt)
-        self.assertIn("怖がるだけでなく", prompt)
-        self.assertIn("景色や物、匂いや汚れ、疲れ", prompt)
-        self.assertIn("仲間へ反応し", prompt)
-        self.assertIn("事件分析のまとめ役に固定しない", prompt)
-        self.assertIn("Discoverable開示時も原因や仮説を述べなくてよい", prompt)
+        self.assertIn("負担、危険、道具、仲間", prompt)
+        self.assertIn("解説・安全指導役に固定しない", prompt)
+        self.assertIn("細部、妙な連想、疑問、使い道、身体感覚、脱線", prompt)
+        self.assertIn("冗談役に固定しない", prompt)
+        self.assertIn("感情、雰囲気、物、仲間", prompt)
+        self.assertIn("怖がり・特定人物への依存役に固定しない", prompt)
 
     def test_prompt_treats_non_investigative_curiosity_as_normal(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("事件の意味だけに注目しなくてよい", prompt)
-        self.assertIn("環境、物の性質、身体的な負担", prompt)
-        self.assertIn("仲間の様子、どうでもよい細部", prompt)
-        self.assertIn("正規の話題", prompt)
         self.assertIn("シナリオ上の重要度と人物の興味は別", prompt)
-        self.assertIn("推理しても別のことを気にしてもよい", prompt)
+        self.assertIn("事件だけでなく、環境、物、身体感覚、仲間、些細なことも話題", prompt)
 
     def test_recent_banter_is_single_turn_labeled_and_separate_from_current_event(self):
         game = self.make_game()
@@ -423,7 +404,7 @@ class CompanionBanterTests(unittest.TestCase):
         packet = json.loads(captured[0]["messages"][1]["content"])
         prompt = captured[0]["messages"][0]["content"]
         self.assertEqual(packet["discovery_log_lines_for_context"], ["発見: " + public_text])
-        self.assertIn("エンジンが別表示する正式発見", prompt)
+        self.assertIn("正式発見は後続のGM行で原文表示", prompt)
         self.assertEqual(rendered, ["GM: レンズを確認した。", "発見: " + public_text])
         self.assertNotIn("GM: " + public_text, rendered)
 
