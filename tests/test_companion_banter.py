@@ -369,8 +369,51 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("CompanionTurns=3", diagnostics)
         self.assertIn("DirectResponseCount=2", diagnostics)
         self.assertIn("ChainRate=66.7%", diagnostics)
-        self.assertIn("Topic=巨大 TurnsReferenced=2", diagnostics)
+        self.assertIn("Topic=巨大イカ TurnsReferenced=2", diagnostics)
         self.assertIn("ResponseTarget=ガラン->クロ Count=1", diagnostics)
+        self.assertIn("[FOCUS_STATS]", diagnostics)
+        self.assertIn("Character=ガラン", diagnostics)
+        self.assertIn("行動=100.0% Count=1", diagnostics)
+        self.assertIn("[TOPIC_ORIGIN]", diagnostics)
+        self.assertIn("Topic=巨大イカ Origin=ニコ", diagnostics)
+        self.assertIn("[TOPIC_SURVIVAL]", diagnostics)
+        self.assertIn(
+            "Topic=巨大イカ CreatedTurn=1 LastReferenced=2 Lifetime=1", diagnostics
+        )
+        self.assertIn("[CHARACTER_INFLUENCE]", diagnostics)
+        self.assertIn("Character=ニコ TopicsCreated=1 TopicsSurvived=0", diagnostics)
+        self.assertIn("Character=ガラン TopicsCreated=0 TopicsSurvived=1", diagnostics)
+
+    def test_focus_stats_use_character_specific_subcategories(self):
+        game = self.make_game()
+        game.debug_llm = True
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                [
+                    "ピピ: みんな疲れているから休もう",
+                    "ピピ: 漁師さんも不安そうだね",
+                    "リュート: 誰が道具を持つか役割分担しよう",
+                    "リュート: 時間を決めて先に点検しよう",
+                ],
+                {"raw": "全員で雑談して", "action_type": "consult"},
+            )
+            game.print_conversation_stats()
+
+        diagnostics = output.getvalue()
+        self.assertIn("Character=ピピ", diagnostics)
+        self.assertIn("体調=50.0% Count=1", diagnostics)
+        self.assertIn("NPC=50.0% Count=1", diagnostics)
+        self.assertIn("Character=リュート", diagnostics)
+        self.assertIn("役割分担=50.0% Count=1", diagnostics)
+        self.assertIn("時間配分=50.0% Count=1", diagnostics)
+
+    def test_topic_extraction_keeps_requested_mixed_script_phrases(self):
+        game = self.make_game()
+
+        self.assertIn("巨大イカ", game.companion_topics(["ニコ: 巨大イカの話をしよう"]))
+        self.assertIn("宝物", game.companion_topics(["ニコ: 宝物の話をしよう"]))
+        self.assertIn("空飛ぶ魚", game.companion_topics(["ニコ: 空飛ぶ魚の話をしよう"]))
 
     def test_conversation_diagnostics_is_silent_without_debug(self):
         game = self.make_game()

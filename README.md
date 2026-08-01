@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.19 会話連鎖観測モード** (`v2.15.19 [conversation-chain-observability]`)
+現行版: **v2.15.20 会話テーマ収束の観測強化** (`v2.15.20 [topic-convergence-observability]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -71,7 +71,10 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 
 セッション終了時には`[CONVERSATION_STATS]`として、仲間発言数、直接反応数、会話連鎖率、テーマ維持率、繰り返し参照されたテーマ、キャラクター別の反応先を集計します。反応先とテーマは軽量な文字列ヒューリスティックによる観測値であり、意味解析による厳密な判定ではありません。
 
+さらに、`[FOCUS_STATS]`でキャラクター別の関心分類、`[TOPIC_ORIGIN]`でテーマを最初に発言したキャラクター、`[TOPIC_SURVIVAL]`でテーマの作成・最終参照ターンと寿命、`[CHARACTER_INFLUENCE]`でテーマ作成数と継続テーマへの参加回数を表示します。`TopicsSurvived`は、そのキャラクター自身が作ったテーマ数ではなく、複数ターンに残ったテーマを作成後のターンで参照した回数です。
+
 会話連鎖の耐久観測には`story_5companions_chain_test.txt`を利用できます。
+ニコが提示した話題から安全・段取り系テーマへの収束を観測する場合は、`story_topic_drift_test.txt`を同じ`--script`オプションへ指定します。
 
 ```powershell
 python .\fixed_truth_ai_gm_mvp.py `
