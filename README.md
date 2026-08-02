@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.20 会話テーマ収束の観測強化** (`v2.15.20 [topic-convergence-observability]`)
+現行版: **v2.15.21 ニコの妙な連想・話題拡散** (`v2.15.21 [nico-associative-topic-expansion]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -54,7 +54,7 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 
 * **クロ:** 面白さ・騒ぎ・ホラ話
 * **ガラン:** 行動・実行
-* **ニコ:** 細部・違和感・連想
+* **ニコ:** 小さな要素からの妙な連想・話題拡散
 * **リュート:** 段取り・準備・実務
 * **ピピ:** 人への関心・気遣い
 
@@ -75,6 +75,7 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 
 会話連鎖の耐久観測には`story_5companions_chain_test.txt`を利用できます。
 ニコが提示した話題から安全・段取り系テーマへの収束を観測する場合は、`story_topic_drift_test.txt`を同じ`--script`オプションへ指定します。
+ニコの巨大イカ・宝物・空飛ぶ魚からの話題派生を短く確認する場合は、`story_5companions_endurance_v1.txt`を利用できます。
 
 ```powershell
 python .\fixed_truth_ai_gm_mvp.py `

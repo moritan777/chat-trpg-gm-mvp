@@ -252,7 +252,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("canonical_gm_textに沿い", prompt)
         self.assertIn("Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない", prompt)
         self.assertIn("本人の反応をGM本文で先回りしない", prompt)
-        self.assertLessEqual(len(prompt), 1850)
+        self.assertLessEqual(len(prompt), 2200)
         self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1320)
 
     def test_prompt_separates_fact_priority_from_conversation_focus(self):
@@ -302,15 +302,27 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("段取りを考えることが多い", prompt)
         self.assertIn("推理役ではなく実務的な視点", prompt)
         self.assertIn("解説役や安全指導役には固定しない", prompt)
-        self.assertIn("細部、違和感、形、音、匂い、小物", prompt)
-        self.assertIn("事件そのものより、周辺の細かい要素や妙な連想", prompt)
-        self.assertIn("冗談役に固定しない", prompt)
+        self.assertIn("小さな要素から妙な連想", prompt)
+        self.assertIn("観察そのものより「そこから何を思い付くか」を優先", prompt)
+        self.assertIn("霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説", prompt)
+        self.assertIn("単なる観察報告で終えるより", prompt)
+        self.assertIn("仲間から「なんでそうなるんだ」と思われる発想も歓迎", prompt)
+        self.assertIn("冗談役には固定しない", prompt)
         self.assertIn("理屈より人へ意識が向く", prompt)
         self.assertIn("仲間やNPCがどうしているかに関心を持つ", prompt)
         self.assertIn("体調、疲れ、不安、無理をしていないか、困っていないか", prompt)
         self.assertIn("誰かを気遣ったり、人と人の関係や様子について話す", prompt)
         self.assertIn("仲間やNPCへの反応が中心", prompt)
         self.assertIn("怖がり役や特定人物への依存役には固定しない", prompt)
+
+    def test_prompt_encourages_topic_derivation_instead_of_repetition(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("【話題の派生】", prompt)
+        self.assertIn("同じ内容の繰り返しは避ける", prompt)
+        self.assertIn("前の話題から別の話題への派生を歓迎", prompt)
+        self.assertIn("巨大イカ→沈没船→宝物→霧船→空飛ぶ魚", prompt)
+        self.assertIn("同じ話の反復ではなく、話題を少しずつ発展・変化", prompt)
 
     def test_prompt_defines_kuro_as_unreliable_without_leaking_hidden_truth(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -407,6 +419,15 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("Character=リュート", diagnostics)
         self.assertIn("役割分担=50.0% Count=1", diagnostics)
         self.assertIn("時間配分=50.0% Count=1", diagnostics)
+
+    def test_nico_focus_distinguishes_observation_from_association(self):
+        game = self.make_game()
+
+        self.assertEqual(game.companion_focus("ニコ", "ニコ: 霧の匂いが気になる"), "観察")
+        self.assertEqual(
+            game.companion_focus("ニコ", "ニコ: この匂い、巨大イカの昔話を思い出す"),
+            "妙な連想",
+        )
 
     def test_topic_extraction_keeps_requested_mixed_script_phrases(self):
         game = self.make_game()
