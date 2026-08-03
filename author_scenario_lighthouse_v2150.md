@@ -1,8 +1,8 @@
-# 消えた灯台守 v2.15.0
+# 消えた灯台守 v2.15.1
 
 中規模汎用確認用シナリオです。証言ルート、物証ルート、灯台設備ルートの3系統で、8〜9ロケーション規模の探索を検証します。
 
-この版では v2.14.1 のNPC所在地・知識・話題に加え、v2.15.0 の Goal Intent Examples を追加しています。
+この版では v2.15.0 の Goal Intent Examples を維持しつつ、海蝕洞到達時の描写と灯台守の未発見状態が矛盾しないよう修正しています。
 
 ```scenario-json
 {
@@ -22,35 +22,9 @@
     "skills": {
       "investigation": 2,
       "survival": 1,
-      "persuasion": 1,
-      "athletics": 1,
-      "stealth": 1
+      "persuasion": 1
     }
   },
-  "action_checks": [
-    {
-      "id": "climb_cliff",
-      "required_location": "cliff_path",
-      "positive_examples": [
-        "崖を登る",
-        "岩を登る",
-        "よじ登る"
-      ],
-      "skill_check": {
-        "skill": "survival",
-        "dice": "2d6",
-        "difficulty": 8
-      },
-      "success_text": "安全な足場を見つけ、灯台入口まで登り切りました。",
-      "failure_text": "足場が崩れ、岬の道で立ち止まります。",
-      "success_effect": {
-        "move_to": "lighthouse_entrance"
-      },
-      "failure_effect": {
-        "delay": true
-      }
-    }
-  ],
   "locations": [
     {
       "id": "harbor",
@@ -233,8 +207,8 @@
         "海食洞へ",
         "海食洞に移動する"
       ],
-      "intro": "潮が引いた時だけ入れる洞窟。奥には濡れた荷箱と小舟が見えるが、その先は暗く見通せない。",
-      "banter_observation": "洞窟の奥からかすかな物音と滴る水音が聞こえる。",
+      "intro": "潮が引いた時だけ入れる洞窟。奥に濡れた荷箱と小舟が見えるが、さらに奥は暗く見通せない。",
+      "banter_observation": "洞窟の奥から滴る水音が反響している。暗がりの先までは見通せない。",
       "npcs": [
         "keeper"
       ],
@@ -419,7 +393,7 @@
         "ユアン",
         "灯台守ユアン"
       ],
-      "banter_observation": "灯台守は洞窟の奥で弱く息をしている。",
+      "banter_observation": "灯台守の居場所は、十分な手掛かりをつなぐまで特定できない。",
       "location": "sea_cave",
       "availability": "hidden",
       "narrative_status": "missing_until_found",
@@ -1169,19 +1143,21 @@
       ]
     }
   },
-  "scenario_revision": "v2150_goal_intent_examples_state_expect",
+  "scenario_revision": "v2151_keeper_visibility_consistency",
   "meta": {
-    "authoring_revision": "v2.15.0",
+    "authoring_revision": "v2.15.1",
     "engine_requirements": {
       "npc_presence_guard": "v2.12.1a",
       "surface_public_separation": "v2.12.2b",
       "npc_knowledge": "v2.13.0",
       "ask_topic_resolver": "v2.14.1",
-      "goal_intent_examples": "v2.15.0"
+      "goal_intent_examples": "v2.15.0",
+      "keeper_visibility_consistency": "v2.15.1"
     },
     "notes": [
       "NPCの所在地、知識、話題をGMノートとして明示する。",
-      "発見条件はdiscoverable側に残し、NPC topics は「何について聞いたか」の解決に使う。"
+      "発見条件はdiscoverable側に残し、NPC topics は「何について聞いたか」の解決に使う。",
+      "海蝕洞の導入では灯台守を視認済みにせず、解決条件成立時の発見・救出描写と整合させる。"
     ],
     "expectation_policy": "state/log anchors only; avoid LLM narrative wording"
   }
