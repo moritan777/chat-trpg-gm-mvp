@@ -633,8 +633,70 @@ class CompanionBanterTests(unittest.TestCase):
             state,
         )
 
-        self.assertEqual(packet["conversation_context"]["previous_companion_lines"], [])
+        self.assertNotIn("conversation_context", packet)
         self.assertEqual(packet["recent_companion_lines"]["lines"], [])
+        self.assertEqual(game.recent_companion_lines(), ["ニコ: 港の霧って変だね。"])
+
+    def test_location_change_resets_only_continuation_mode(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("harbor")
+        old_lines = ["ニコ: 巨大イカから沈没船を思い出した。"]
+        game.remember_companion_turn(
+            old_lines,
+            {"raw": "全員で雑談して", "action_type": "consult"},
+            state,
+        )
+        continued = game.packet(
+            {"raw": "全員でその話を続けて", "action_type": "consult"}, [], state
+        )
+        self.assertIn("conversation_context", continued)
+        self.assertEqual(game.conversation_continue_count, 1)
+
+        state.location = "warehouse"
+        with redirect_stdout(io.StringIO()) as output:
+            moved = game.packet(
+                {"raw": "倉庫へ移動する", "action_type": "move", "target_id": "warehouse"},
+                [],
+                state,
+            )
+
+        self.assertNotIn("conversation_context", moved)
+        self.assertEqual(game.conversation_continue_count, 0)
+        self.assertEqual(game.companion_diagnostics["continue_reset_count"], 1)
+        self.assertEqual(game.recent_companion_lines(), old_lines)
+        self.assertIn("[CONVERSATION_RESET]", output.getvalue())
+        self.assertIn("Reason=LocationChanged", output.getvalue())
+        self.assertIn("From=harbor", output.getvalue())
+        self.assertIn("To=warehouse", output.getvalue())
+
+    def test_fourth_continue_request_expires_without_clearing_history(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("harbor")
+        old_lines = ["ニコ: 宝物から変な石を思い出した。"]
+        game.remember_companion_turn(
+            old_lines,
+            {"raw": "全員で雑談して", "action_type": "consult"},
+            state,
+        )
+        intent = {"raw": "全員でその話を続けて", "action_type": "consult"}
+
+        packets = []
+        with redirect_stdout(io.StringIO()) as output:
+            for _ in range(4):
+                packets.append(game.packet(intent, [], state))
+            game.print_conversation_stats()
+
+        self.assertTrue(all("conversation_context" in packet for packet in packets[:3]))
+        self.assertNotIn("conversation_context", packets[3])
+        self.assertEqual(game.conversation_continue_count, 0)
+        self.assertEqual(game.recent_companion_lines(), old_lines)
+        self.assertEqual(game.companion_diagnostics["continue_expire_count"], 1)
+        self.assertIn("Reason=ContinueExpired", output.getvalue())
+        self.assertIn("Turns=3", output.getvalue())
+        self.assertIn("ContinueResetCount=0", output.getvalue())
+        self.assertIn("ContinueExpireCount=1", output.getvalue())
 
     def test_named_and_group_requests_are_structured_as_participant_preferences(self):
         game = self.make_game()

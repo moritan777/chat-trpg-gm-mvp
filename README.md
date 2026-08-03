@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.22 会話派生率（Topic Branch）観測** (`v2.15.22 [topic-branch-observability]`)
+現行版: **v2.15.23 会話継続モード寿命管理** (`v2.15.23 [conversation-continuation-lifetime]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -74,6 +74,8 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 さらに、`[FOCUS_STATS]`でキャラクター別の関心分類、`[TOPIC_ORIGIN]`でテーマを最初に発言したキャラクター、`[TOPIC_SURVIVAL]`でテーマの作成・最終参照ターンと寿命、`[CHARACTER_INFLUENCE]`でテーマ作成数と継続テーマへの参加回数を表示します。`TopicsSurvived`は、そのキャラクター自身が作ったテーマ数ではなく、複数ターンに残ったテーマを作成後のターンで参照した回数です。
 
 `TopicBranchRate`は、比較可能な隣接ターンのうち、前ターンのテーマを一つ以上維持しながら新しいテーマも加えたターンの割合です。`[TOPIC_BRANCH]`には`既存テーマ -> 新規テーマ`の遷移を最大20件表示します。共通テーマがなく全面的に切り替わったターンは内部の`TopicJumpCount`として別集計し、派生には含めません。`[NICO_DIAGNOSTICS]`では、ニコが新規テーマを加えた派生回数と、ニコが発言したユニークテーマ数・一覧を確認できます。
+
+明示的な会話継続は同じ場所で最大3ターンまで`conversation_context.mode=continue`を送信します。4回目の継続要求ではモードを期限切れにし、新しい話題へ移れる通常入力として扱います。場所が変わった場合も継続モードだけを解除しますが、仲間の内部会話履歴、テーマ履歴、Conversation Statsは削除しません。デバッグ時は`[CONVERSATION_RESET]`を表示し、集計には`ContinueResetCount`と`ContinueExpireCount`を追加します。
 
 会話連鎖の耐久観測には`story_5companions_chain_test.txt`を利用できます。
 ニコが提示した話題から安全・段取り系テーマへの収束を観測する場合は、`story_topic_drift_test.txt`を同じ`--script`オプションへ指定します。
