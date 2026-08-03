@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import argparse
 import json
+import re
 from pathlib import Path
 
 
@@ -32,6 +33,20 @@ def main():
     locs = {x['id'] for x in sc.get('locations', [])}
     objs = {x['id'] for x in sc.get('objects', [])}
     npcs = {x['id'] for x in sc.get('npcs', [])}
+    supported_skills = {'investigation', 'survival', 'persuasion', 'athletics', 'stealth'}
+
+    def check_skill_check(check, label):
+        if not isinstance(check, dict):
+            errors.append(f'{label} skill_check must be object/dict')
+            return
+        if check.get('skill') not in supported_skills:
+            errors.append(f'{label} skill_check unknown skill: {check.get("skill")}')
+        dice = str(check.get('dice', '2d6'))
+        if not re.fullmatch(r'[1-9]\d*d[1-9]\d*', dice, re.IGNORECASE):
+            errors.append(f'{label} skill_check invalid dice: {dice}')
+        difficulty = check.get('difficulty')
+        if not isinstance(difficulty, int) or isinstance(difficulty, bool):
+            errors.append(f'{label} skill_check difficulty must be integer')
 
     ids = []
     for d in sc.get('discoverables', []):
@@ -71,6 +86,27 @@ def main():
         if src.get('type') == 'npc' and src.get('id') not in npcs:
             errors.append(f'discoverable {did} source unknown npc: {src.get("id")}')
         check_refs(d, 'discoverable')
+        if d.get('skill_check') is not None:
+            check_skill_check(d.get('skill_check'), f'discoverable {did}')
+
+    action_ids = set()
+    for action in sc.get('action_checks', []) or []:
+        aid = action.get('id', '<unknown>')
+        if aid == '<unknown>':
+            errors.append('action_check without id')
+        elif aid in action_ids:
+            errors.append(f'duplicate action_check id: {aid}')
+        action_ids.add(aid)
+        if not action.get('positive_examples'):
+            errors.append(f'action_check {aid} missing positive_examples')
+        check_skill_check(action.get('skill_check'), f'action_check {aid}')
+        if action.get('required_location') and action.get('required_location') not in locs:
+            errors.append(f'action_check {aid} required_location unknown: {action.get("required_location")}')
+        for effect_name in ('success_effect', 'failure_effect'):
+            effect = action.get(effect_name, {}) or {}
+            destination = effect.get('move_to', effect.get('moves_to'))
+            if destination and destination not in locs:
+                errors.append(f'action_check {aid} {effect_name} move_to unknown: {destination}')
 
     for g in sc.get('goals', []):
         gid = g.get('id', '<unknown>')

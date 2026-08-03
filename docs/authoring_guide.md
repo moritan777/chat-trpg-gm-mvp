@@ -298,7 +298,38 @@ Discoverable は手掛かりです。
 }
 ```
 
-を設定します。 
+を設定します。
+
+## 汎用行動判定 (`action_checks`)
+
+調査オブジェクトを対象にしない登攀、追跡、説得、隠密などは、トップレベルの
+`action_checks` に定義します。`positive_examples` にプレイヤーが入力しそうな表現を、
+`skill_check` に技能・ダイス・難易度を指定します。合計値が難易度と同じ場合も成功です。
+
+```json
+{
+  "action_checks": [
+    {
+      "id": "climb_rocks",
+      "required_location": "lower_cliff",
+      "positive_examples": ["崖を登る", "岩を登る", "よじ登る"],
+      "skill_check": {
+        "skill": "survival",
+        "dice": "2d6",
+        "difficulty": 8
+      },
+      "success_text": "崖の上へ登り切った。",
+      "failure_text": "足場をつかめず、その場に留まった。",
+      "success_effect": {"move_to": "upper_cliff"},
+      "failure_effect": {"delay": true}
+    }
+  ]
+}
+```
+
+標準技能キーは `investigation`、`survival`、`persuasion`、`athletics`、`stealth`
+です。今回の汎用判定は移動 (`move_to`) と足止め (`delay`) を扱い、HP、負傷、毒などの
+状態異常や戦闘処理は扱いません。
 
 ***
 
