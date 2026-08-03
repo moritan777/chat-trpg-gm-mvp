@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from fixed_truth_ai_gm_mvp import Game, State
+from fixed_truth_ai_gm_mvp import Game, State, load_script
 
 
 class CompanionBanterTests(unittest.TestCase):
@@ -447,6 +447,52 @@ class CompanionBanterTests(unittest.TestCase):
 
         self.assertEqual(output.getvalue(), "")
         self.assertEqual(game.companion_diagnostics["companion_turns"], 1)
+
+    def test_topic_branch_metrics_distinguish_derivation_from_jump(self):
+        game = self.make_game()
+        game.debug_llm = True
+        intent = {"raw": "全員でその話を続けて", "action_type": "consult"}
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(["ニコ: 巨大イカの話をしよう"], intent)
+            game.observe_companion_turn(["ニコ: 巨大イカと沈没船の話だ"], intent)
+            game.observe_companion_turn(["ニコ: 沈没船には宝物もありそう"], intent)
+            game.observe_companion_turn(["ニコ: パンケーキの話をしよう"], intent)
+            game.print_conversation_stats()
+
+        diagnostics = output.getvalue()
+        self.assertIn("TopicBranchRate=66.7%", diagnostics)
+        self.assertIn("TopicBranchCount=2", diagnostics)
+        self.assertIn("[TOPIC_BRANCH]", diagnostics)
+        self.assertIn("巨大イカ -> 沈没船", diagnostics)
+        self.assertIn("沈没船 -> 宝物", diagnostics)
+        self.assertNotIn("宝物 -> パンケーキ", diagnostics)
+        self.assertIn("[NICO_DIAGNOSTICS]", diagnostics)
+        self.assertIn("BranchCount=2", diagnostics)
+        self.assertIn("UniqueTopics=4", diagnostics)
+        self.assertEqual(game.companion_diagnostics["topic_jump_count"], 1)
+
+    def test_topic_branch_log_is_limited_to_twenty_transitions(self):
+        game = self.make_game()
+        game.debug_llm = True
+        game.companion_diagnostics["topic_branches"] = [
+            ("起点", f"派生{index}") for index in range(25)
+        ]
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.print_conversation_stats()
+
+        branch_section = output.getvalue().split("[TOPIC_BRANCH]\n", 1)[1].split(
+            "[NICO_DIAGNOSTICS]", 1
+        )[0]
+        self.assertEqual(branch_section.count("起点 -> 派生"), 20)
+
+    def test_topic_branch_endurance_script_contains_thirty_turns(self):
+        turns = load_script("story_topic_branch_30turn_test.txt")
+
+        self.assertEqual(len(turns), 30)
+        self.assertEqual(turns[0], "ニコ巨大イカの話をして")
+        self.assertEqual(turns[-1], "全員でその話を続けて")
 
     def test_recent_banter_is_single_turn_labeled_and_separate_from_current_event(self):
         game = self.make_game()

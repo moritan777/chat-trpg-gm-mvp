@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.21 ニコの妙な連想・話題拡散** (`v2.15.21 [nico-associative-topic-expansion]`)
+現行版: **v2.15.22 会話派生率（Topic Branch）観測** (`v2.15.22 [topic-branch-observability]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -73,9 +73,12 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 
 さらに、`[FOCUS_STATS]`でキャラクター別の関心分類、`[TOPIC_ORIGIN]`でテーマを最初に発言したキャラクター、`[TOPIC_SURVIVAL]`でテーマの作成・最終参照ターンと寿命、`[CHARACTER_INFLUENCE]`でテーマ作成数と継続テーマへの参加回数を表示します。`TopicsSurvived`は、そのキャラクター自身が作ったテーマ数ではなく、複数ターンに残ったテーマを作成後のターンで参照した回数です。
 
+`TopicBranchRate`は、比較可能な隣接ターンのうち、前ターンのテーマを一つ以上維持しながら新しいテーマも加えたターンの割合です。`[TOPIC_BRANCH]`には`既存テーマ -> 新規テーマ`の遷移を最大20件表示します。共通テーマがなく全面的に切り替わったターンは内部の`TopicJumpCount`として別集計し、派生には含めません。`[NICO_DIAGNOSTICS]`では、ニコが新規テーマを加えた派生回数と、ニコが発言したユニークテーマ数・一覧を確認できます。
+
 会話連鎖の耐久観測には`story_5companions_chain_test.txt`を利用できます。
 ニコが提示した話題から安全・段取り系テーマへの収束を観測する場合は、`story_topic_drift_test.txt`を同じ`--script`オプションへ指定します。
 ニコの巨大イカ・宝物・空飛ぶ魚からの話題派生を短く確認する場合は、`story_5companions_endurance_v1.txt`を利用できます。
+`ChainRate`、`TopicMaintenanceRate`、`TopicBranchRate`を30ターンで比較する場合は、`story_topic_branch_30turn_test.txt`を利用します。
 
 ```powershell
 python .\fixed_truth_ai_gm_mvp.py `
