@@ -27,6 +27,30 @@
       "stealth": 1
     }
   },
+  "action_checks": [
+    {
+      "id": "climb_cliff",
+      "required_location": "cliff_path",
+      "positive_examples": [
+        "崖を登る",
+        "岩を登る",
+        "よじ登る"
+      ],
+      "skill_check": {
+        "skill": "survival",
+        "dice": "2d6",
+        "difficulty": 8
+      },
+      "success_text": "安全な足場を見つけ、灯台入口まで登り切りました。",
+      "failure_text": "足場が崩れ、岬の道で立ち止まります。",
+      "success_effect": {
+        "move_to": "lighthouse_entrance"
+      },
+      "failure_effect": {
+        "delay": true
+      }
+    }
+  ],
   "locations": [
     {
       "id": "harbor",
