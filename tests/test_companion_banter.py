@@ -8,7 +8,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from fixed_truth_ai_gm_mvp import Game, State
+from fixed_truth_ai_gm_mvp import Game, State, load_script
 
 
 class CompanionBanterTests(unittest.TestCase):
@@ -252,7 +252,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("canonical_gm_textに沿い", prompt)
         self.assertIn("Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない", prompt)
         self.assertIn("本人の反応をGM本文で先回りしない", prompt)
-        self.assertLessEqual(len(prompt), 1850)
+        self.assertLessEqual(len(prompt), 2200)
         self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1320)
 
     def test_prompt_separates_fact_priority_from_conversation_focus(self):
@@ -297,16 +297,32 @@ class CompanionBanterTests(unittest.TestCase):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("何が起きたかより、次に何が起きるか", prompt)
-        self.assertIn("危険、負担、道具、退路、仲間の状態", prompt)
+        self.assertIn("危険だけでなく、準備、装備、移動、時間配分、役割分担、負担の偏り", prompt)
+        self.assertIn("「誰がやるか」「どの順番で進めるか」「何を持って行くか」", prompt)
+        self.assertIn("段取りを考えることが多い", prompt)
         self.assertIn("推理役ではなく実務的な視点", prompt)
-        self.assertIn("解説・安全指導役に固定しない", prompt)
-        self.assertIn("細部、違和感、形、音、匂い、小物", prompt)
-        self.assertIn("事件そのものより、周辺の細かい要素や妙な連想", prompt)
-        self.assertIn("冗談役に固定しない", prompt)
+        self.assertIn("解説役や安全指導役には固定しない", prompt)
+        self.assertIn("小さな要素から妙な連想", prompt)
+        self.assertIn("観察そのものより「そこから何を思い付くか」を優先", prompt)
+        self.assertIn("霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説", prompt)
+        self.assertIn("単なる観察報告で終えるより", prompt)
+        self.assertIn("仲間から「なんでそうなるんだ」と思われる発想も歓迎", prompt)
+        self.assertIn("冗談役には固定しない", prompt)
         self.assertIn("理屈より人へ意識が向く", prompt)
-        self.assertIn("誰かが傷付いていないか、誰かが不安そうでないか", prompt)
-        self.assertIn("仲間やNPCへの感情的反応が中心", prompt)
-        self.assertIn("怖がり・特定人物への依存役に固定しない", prompt)
+        self.assertIn("仲間やNPCがどうしているかに関心を持つ", prompt)
+        self.assertIn("体調、疲れ、不安、無理をしていないか、困っていないか", prompt)
+        self.assertIn("誰かを気遣ったり、人と人の関係や様子について話す", prompt)
+        self.assertIn("仲間やNPCへの反応が中心", prompt)
+        self.assertIn("怖がり役や特定人物への依存役には固定しない", prompt)
+
+    def test_prompt_encourages_topic_derivation_instead_of_repetition(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("【話題の派生】", prompt)
+        self.assertIn("同じ内容の繰り返しは避ける", prompt)
+        self.assertIn("前の話題から別の話題への派生を歓迎", prompt)
+        self.assertIn("巨大イカ→沈没船→宝物→霧船→空飛ぶ魚", prompt)
+        self.assertIn("同じ話の反復ではなく、話題を少しずつ発展・変化", prompt)
 
     def test_prompt_defines_kuro_as_unreliable_without_leaking_hidden_truth(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -333,6 +349,150 @@ class CompanionBanterTests(unittest.TestCase):
 
         self.assertIn("シナリオ上の重要度と人物の興味は別", prompt)
         self.assertIn("事件だけでなく、環境、物、身体感覚、仲間、些細なことも話題", prompt)
+
+    def test_conversation_diagnostics_tracks_chain_topics_and_response_targets(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("cliff_path")
+        first_intent = {"raw": "全員で雑談して", "action_type": "consult"}
+        continued_intent = {"raw": "全員でその話を続けて", "action_type": "consult"}
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                ["ニコ: 巨大イカの影が気になる", "クロ: ニコ、それは面白い話だ"],
+                first_intent,
+            )
+            game.remember_companion_turn(
+                ["ニコ: 巨大イカの影が気になる", "クロ: ニコ、それは面白い話だ"],
+                first_intent,
+                state,
+            )
+            game.observe_companion_turn(
+                ["ガラン: それなら巨大イカを見に行こう"], continued_intent
+            )
+            game.print_conversation_stats()
+
+        diagnostics = output.getvalue()
+        self.assertIn("[COMPANION_DIAGNOSTICS]", diagnostics)
+        self.assertIn("Character=ガラン", diagnostics)
+        self.assertIn("Trigger=会話継続", diagnostics)
+        self.assertIn("RespondedTo=クロ", diagnostics)
+        self.assertIn("Focus=行動", diagnostics)
+        self.assertIn("CompanionTurns=3", diagnostics)
+        self.assertIn("DirectResponseCount=2", diagnostics)
+        self.assertIn("ChainRate=66.7%", diagnostics)
+        self.assertIn("Topic=巨大イカ TurnsReferenced=2", diagnostics)
+        self.assertIn("ResponseTarget=ガラン->クロ Count=1", diagnostics)
+        self.assertIn("[FOCUS_STATS]", diagnostics)
+        self.assertIn("Character=ガラン", diagnostics)
+        self.assertIn("行動=100.0% Count=1", diagnostics)
+        self.assertIn("[TOPIC_ORIGIN]", diagnostics)
+        self.assertIn("Topic=巨大イカ Origin=ニコ", diagnostics)
+        self.assertIn("[TOPIC_SURVIVAL]", diagnostics)
+        self.assertIn(
+            "Topic=巨大イカ CreatedTurn=1 LastReferenced=2 Lifetime=1", diagnostics
+        )
+        self.assertIn("[CHARACTER_INFLUENCE]", diagnostics)
+        self.assertIn("Character=ニコ TopicsCreated=1 TopicsSurvived=0", diagnostics)
+        self.assertIn("Character=ガラン TopicsCreated=0 TopicsSurvived=1", diagnostics)
+
+    def test_focus_stats_use_character_specific_subcategories(self):
+        game = self.make_game()
+        game.debug_llm = True
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                [
+                    "ピピ: みんな疲れているから休もう",
+                    "ピピ: 漁師さんも不安そうだね",
+                    "リュート: 誰が道具を持つか役割分担しよう",
+                    "リュート: 時間を決めて先に点検しよう",
+                ],
+                {"raw": "全員で雑談して", "action_type": "consult"},
+            )
+            game.print_conversation_stats()
+
+        diagnostics = output.getvalue()
+        self.assertIn("Character=ピピ", diagnostics)
+        self.assertIn("体調=50.0% Count=1", diagnostics)
+        self.assertIn("NPC=50.0% Count=1", diagnostics)
+        self.assertIn("Character=リュート", diagnostics)
+        self.assertIn("役割分担=50.0% Count=1", diagnostics)
+        self.assertIn("時間配分=50.0% Count=1", diagnostics)
+
+    def test_nico_focus_distinguishes_observation_from_association(self):
+        game = self.make_game()
+
+        self.assertEqual(game.companion_focus("ニコ", "ニコ: 霧の匂いが気になる"), "観察")
+        self.assertEqual(
+            game.companion_focus("ニコ", "ニコ: この匂い、巨大イカの昔話を思い出す"),
+            "妙な連想",
+        )
+
+    def test_topic_extraction_keeps_requested_mixed_script_phrases(self):
+        game = self.make_game()
+
+        self.assertIn("巨大イカ", game.companion_topics(["ニコ: 巨大イカの話をしよう"]))
+        self.assertIn("宝物", game.companion_topics(["ニコ: 宝物の話をしよう"]))
+        self.assertIn("空飛ぶ魚", game.companion_topics(["ニコ: 空飛ぶ魚の話をしよう"]))
+
+    def test_conversation_diagnostics_is_silent_without_debug(self):
+        game = self.make_game()
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                ["ピピ: みんな疲れていないかな"],
+                {"raw": "全員で雑談して", "action_type": "consult"},
+            )
+            game.print_conversation_stats()
+
+        self.assertEqual(output.getvalue(), "")
+        self.assertEqual(game.companion_diagnostics["companion_turns"], 1)
+
+    def test_topic_branch_metrics_distinguish_derivation_from_jump(self):
+        game = self.make_game()
+        game.debug_llm = True
+        intent = {"raw": "全員でその話を続けて", "action_type": "consult"}
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(["ニコ: 巨大イカの話をしよう"], intent)
+            game.observe_companion_turn(["ニコ: 巨大イカと沈没船の話だ"], intent)
+            game.observe_companion_turn(["ニコ: 沈没船には宝物もありそう"], intent)
+            game.observe_companion_turn(["ニコ: パンケーキの話をしよう"], intent)
+            game.print_conversation_stats()
+
+        diagnostics = output.getvalue()
+        self.assertIn("TopicBranchRate=66.7%", diagnostics)
+        self.assertIn("TopicBranchCount=2", diagnostics)
+        self.assertIn("[TOPIC_BRANCH]", diagnostics)
+        self.assertIn("巨大イカ -> 沈没船", diagnostics)
+        self.assertIn("沈没船 -> 宝物", diagnostics)
+        self.assertNotIn("宝物 -> パンケーキ", diagnostics)
+        self.assertIn("[NICO_DIAGNOSTICS]", diagnostics)
+        self.assertIn("BranchCount=2", diagnostics)
+        self.assertIn("UniqueTopics=4", diagnostics)
+        self.assertEqual(game.companion_diagnostics["topic_jump_count"], 1)
+
+    def test_topic_branch_log_is_limited_to_twenty_transitions(self):
+        game = self.make_game()
+        game.debug_llm = True
+        game.companion_diagnostics["topic_branches"] = [
+            ("起点", f"派生{index}") for index in range(25)
+        ]
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.print_conversation_stats()
+
+        branch_section = output.getvalue().split("[TOPIC_BRANCH]\n", 1)[1].split(
+            "[NICO_DIAGNOSTICS]", 1
+        )[0]
+        self.assertEqual(branch_section.count("起点 -> 派生"), 20)
+
+    def test_topic_branch_endurance_script_contains_thirty_turns(self):
+        turns = load_script("story_topic_branch_30turn_test.txt")
+
+        self.assertEqual(len(turns), 30)
+        self.assertEqual(turns[0], "ニコ巨大イカの話をして")
+        self.assertEqual(turns[-1], "全員でその話を続けて")
 
     def test_recent_banter_is_single_turn_labeled_and_separate_from_current_event(self):
         game = self.make_game()
@@ -473,8 +633,70 @@ class CompanionBanterTests(unittest.TestCase):
             state,
         )
 
-        self.assertEqual(packet["conversation_context"]["previous_companion_lines"], [])
+        self.assertNotIn("conversation_context", packet)
         self.assertEqual(packet["recent_companion_lines"]["lines"], [])
+        self.assertEqual(game.recent_companion_lines(), ["ニコ: 港の霧って変だね。"])
+
+    def test_location_change_resets_only_continuation_mode(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("harbor")
+        old_lines = ["ニコ: 巨大イカから沈没船を思い出した。"]
+        game.remember_companion_turn(
+            old_lines,
+            {"raw": "全員で雑談して", "action_type": "consult"},
+            state,
+        )
+        continued = game.packet(
+            {"raw": "全員でその話を続けて", "action_type": "consult"}, [], state
+        )
+        self.assertIn("conversation_context", continued)
+        self.assertEqual(game.conversation_continue_count, 1)
+
+        state.location = "warehouse"
+        with redirect_stdout(io.StringIO()) as output:
+            moved = game.packet(
+                {"raw": "倉庫へ移動する", "action_type": "move", "target_id": "warehouse"},
+                [],
+                state,
+            )
+
+        self.assertNotIn("conversation_context", moved)
+        self.assertEqual(game.conversation_continue_count, 0)
+        self.assertEqual(game.companion_diagnostics["continue_reset_count"], 1)
+        self.assertEqual(game.recent_companion_lines(), old_lines)
+        self.assertIn("[CONVERSATION_RESET]", output.getvalue())
+        self.assertIn("Reason=LocationChanged", output.getvalue())
+        self.assertIn("From=harbor", output.getvalue())
+        self.assertIn("To=warehouse", output.getvalue())
+
+    def test_fourth_continue_request_expires_without_clearing_history(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("harbor")
+        old_lines = ["ニコ: 宝物から変な石を思い出した。"]
+        game.remember_companion_turn(
+            old_lines,
+            {"raw": "全員で雑談して", "action_type": "consult"},
+            state,
+        )
+        intent = {"raw": "全員でその話を続けて", "action_type": "consult"}
+
+        packets = []
+        with redirect_stdout(io.StringIO()) as output:
+            for _ in range(4):
+                packets.append(game.packet(intent, [], state))
+            game.print_conversation_stats()
+
+        self.assertTrue(all("conversation_context" in packet for packet in packets[:3]))
+        self.assertNotIn("conversation_context", packets[3])
+        self.assertEqual(game.conversation_continue_count, 0)
+        self.assertEqual(game.recent_companion_lines(), old_lines)
+        self.assertEqual(game.companion_diagnostics["continue_expire_count"], 1)
+        self.assertIn("Reason=ContinueExpired", output.getvalue())
+        self.assertIn("Turns=3", output.getvalue())
+        self.assertIn("ContinueResetCount=0", output.getvalue())
+        self.assertIn("ContinueExpireCount=1", output.getvalue())
 
     def test_named_and_group_requests_are_structured_as_participant_preferences(self):
         game = self.make_game()
