@@ -76,6 +76,20 @@ class ActionSkillCheckTests(unittest.TestCase):
         intent = game.judge("崖を登る", State("upper_cliff"))
         self.assertNotEqual("action_skill_check", intent["action_type"])
 
+    def test_standard_skills_are_present_when_scenario_omits_them(self):
+        scenario_path = Path(self.temp_dir.name, "scenario.json")
+        scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+        scenario["player"] = {"skills": {"investigation": 3}}
+        scenario_path.write_text(json.dumps(scenario, ensure_ascii=False), encoding="utf-8")
+
+        skills = Game(self.temp_dir.name).player["skills"]
+
+        self.assertEqual(3, skills["investigation"])
+        self.assertEqual(0, skills["survival"])
+        self.assertEqual(0, skills["persuasion"])
+        self.assertEqual(0, skills["athletics"])
+        self.assertEqual(0, skills["stealth"])
+
 
 if __name__ == "__main__":
     unittest.main()

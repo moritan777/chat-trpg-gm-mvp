@@ -22,7 +22,9 @@
     "skills": {
       "investigation": 2,
       "survival": 1,
-      "persuasion": 1
+      "persuasion": 1,
+      "athletics": 1,
+      "stealth": 1
     }
   },
   "locations": [
