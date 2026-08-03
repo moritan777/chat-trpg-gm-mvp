@@ -41,6 +41,7 @@
         "dice": "2d6",
         "difficulty": 8
       },
+      "check_prompt": "嵐の影響で崖はぬかるみ、足場も不安定になっています。安全に登れるか、生存判定を行います。",
       "success_text": "安全な足場を見つけ、灯台入口まで登り切りました。",
       "failure_text": "足場が崩れ、岬の道で立ち止まります。",
       "success_effect": {

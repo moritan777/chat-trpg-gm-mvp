@@ -3059,7 +3059,11 @@ class Game:
         total = base + modifier
         difficulty = int(check.get("difficulty", 0))
         success = total >= difficulty
-        lines = self.format_skill_check(skill, f"{notation} + {skill}({modifier})", total, difficulty)
+        check_prompt = check_event.get("check_prompt")
+        if not isinstance(check_prompt, str) or not check_prompt.strip():
+            check_prompt = "この行動が成功するか判定します。"
+        lines = ["GM: " + check_prompt.strip()]
+        lines += self.format_skill_check(skill, f"{notation} + {skill}({modifier})", total, difficulty)
         lines.append("成功" if success else "失敗")
         text_key = "success_text" if success else "failure_text"
         fallback = "行動に成功しました。" if success else "行動に失敗し、先へ進めません。"

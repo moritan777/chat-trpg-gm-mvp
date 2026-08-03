@@ -59,6 +59,8 @@ class ActionSkillCheckTests(unittest.TestCase):
         self.assertEqual("ok", result["status"])
         self.assertEqual("upper_cliff", state.location)
         self.assertIn("成功", lines)
+        self.assertEqual("GM: この行動が成功するか判定します。", lines[0])
+        self.assertEqual("【生存判定】", lines[1])
         self.assertIn({"type": "location_changed", "id": "upper_cliff"}, events)
 
     def test_failure_does_not_move_and_records_delay(self):
@@ -72,7 +74,7 @@ class ActionSkillCheckTests(unittest.TestCase):
         state, _intent, (lines, result, _events) = self.run_climb(7)
         self.assertEqual("ok", result["status"])
         self.assertEqual("upper_cliff", state.location)
-        self.assertEqual(["結果:", "8", "難易度:", "8"], lines[2:6])
+        self.assertEqual(["結果:", "8", "難易度:", "8"], lines[3:7])
 
     def test_check_is_only_available_at_required_location(self):
         game = Game(self.temp_dir.name, skill_dice_total=7)
@@ -139,6 +141,11 @@ class LighthouseActionSkillCheckIntegrationTests(unittest.TestCase):
         self.assertEqual("climb_cliff", intent["target_id"])
         self.assertEqual("ok", result["status"])
         self.assertEqual("lighthouse_entrance", state.location)
+        self.assertEqual(
+            "GM: 嵐の影響で崖はぬかるみ、足場も不安定になっています。安全に登れるか、生存判定を行います。",
+            lines[0],
+        )
+        self.assertLess(lines.index(lines[0]), lines.index("【生存判定】"))
         self.assertIn("GM: 安全な足場を見つけ、灯台入口まで登り切りました。", lines)
         self.assertIn({"type": "location_changed", "id": "lighthouse_entrance"}, events)
 
