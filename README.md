@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.17 仲間アーキタイプ2名追加** (`v2.15.17 [two-more-companion-archetypes]`)
+現行版: **v2.15.24 リュート段取りバイアス緩和・話題派生強化** (`v2.15.24 [reduce-ryute-planning-bias]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -45,6 +45,51 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 * 指定した仲間による同一場面内の会話継続
 * クロ（ホラ吹き）とガラン（行動派）を含む5人の仲間アーキタイプ
 * Embeddingによる行動判定
+
+---
+
+## 仲間キャラクター設計方針
+
+仲間キャラクターは、特定の役割や決まった反応ではなく、何に最初に関心を向けるかという**認知軸**で差別化します。これにより個性を保ちながら、場面に応じて幅広い発言ができるようにします。
+
+* **クロ:** 面白さ・騒ぎ・ホラ話
+* **ガラン:** 行動・実行
+* **ニコ:** 小さな要素からの妙な連想・話題拡散
+* **リュート:** 実務的な視点を持つが、雑談や想像話にも参加する
+* **ピピ:** 人への関心・気遣い
+
+新しい仲間を追加するときも、固定的な「担当」を割り当てるのではなく、**キャラは役割ではなく認知軸で差別化する**ことを設計指針とします。
+
+### 会話連鎖の観測
+
+`--debug-llm`または`--debug-all`を指定すると、仲間の各発言について`[COMPANION_DIAGNOSTICS]`を表示します。これは生成済みの発言を簡易分類する観測機能であり、発言内容や発言機会を変更するものではありません。
+
+* `Character`: 発言者
+* `Trigger`: 通常の場面反応か、明示的な会話継続か
+* `RespondedTo`: 名前への言及、または継続発言の反応表現から推定した反応先
+* `Focus`: 発言内の語から簡易分類した関心対象
+
+セッション終了時には`[CONVERSATION_STATS]`として、仲間発言数、直接反応数、会話連鎖率、テーマ維持率、繰り返し参照されたテーマ、キャラクター別の反応先を集計します。反応先とテーマは軽量な文字列ヒューリスティックによる観測値であり、意味解析による厳密な判定ではありません。
+
+さらに、`[FOCUS_STATS]`でキャラクター別の関心分類、`[TOPIC_ORIGIN]`でテーマを最初に発言したキャラクター、`[TOPIC_SURVIVAL]`でテーマの作成・最終参照ターンと寿命、`[CHARACTER_INFLUENCE]`でテーマ作成数と継続テーマへの参加回数を表示します。`TopicsSurvived`は、そのキャラクター自身が作ったテーマ数ではなく、複数ターンに残ったテーマを作成後のターンで参照した回数です。
+
+`TopicBranchRate`は、比較可能な隣接ターンのうち、前ターンのテーマを一つ以上維持しながら新しいテーマも加えたターンの割合です。`[TOPIC_BRANCH]`には`既存テーマ -> 新規テーマ`の遷移を最大20件表示します。共通テーマがなく全面的に切り替わったターンは内部の`TopicJumpCount`として別集計し、派生には含めません。`[NICO_DIAGNOSTICS]`では、ニコが新規テーマを加えた派生回数と、ニコが発言したユニークテーマ数・一覧を確認できます。
+
+明示的な会話継続は同じ場所で最大3ターンまで`conversation_context.mode=continue`を送信します。4回目の継続要求ではモードを期限切れにし、新しい話題へ移れる通常入力として扱います。場所が変わった場合も継続モードだけを解除しますが、仲間の内部会話履歴、テーマ履歴、Conversation Statsは削除しません。デバッグ時は`[CONVERSATION_RESET]`を表示し、集計には`ContinueResetCount`と`ContinueExpireCount`を追加します。
+
+各発言の正規化した話題は`[COMPANION_TOPIC]`として表示し、セッション末尾では`CharacterTopic=<キャラクター> Topic=<話題> Count=<回数>`形式で集計します。これにより、リュートの発言が安全・確認・ルート・装備・段取りへ偏っていないかを確認できます。
+
+会話連鎖の耐久観測には`story_5companions_chain_test.txt`を利用できます。
+ニコが提示した話題から安全・段取り系テーマへの収束を観測する場合は、`story_topic_drift_test.txt`を同じ`--script`オプションへ指定します。
+ニコの巨大イカ・宝物・空飛ぶ魚からの話題派生を短く確認する場合は、`story_5companions_endurance_v1.txt`を利用できます。
+`ChainRate`、`TopicMaintenanceRate`、`TopicBranchRate`を30ターンで比較する場合は、`story_topic_branch_30turn_test.txt`を利用します。
+
+```powershell
+python .\fixed_truth_ai_gm_mvp.py `
+  --scenario-dir scenario_lighthouse_from_md_v2150 `
+  --script story_5companions_chain_test.txt `
+  --debug-llm
+```
 
 ---
 
