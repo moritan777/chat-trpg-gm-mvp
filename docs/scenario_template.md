@@ -42,7 +42,15 @@ Chat TTRPG GM MVP シナリオテンプレート
 
 &#x20;   "skills": {
 
-&#x20;     "investigation": 1
+&#x20;     "investigation": 2,
+
+&#x20;     "survival": 1,
+
+&#x20;     "persuasion": 1,
+
+&#x20;     "athletics": 1,
+
+&#x20;     "stealth": 1
 
 &#x20;   }
 

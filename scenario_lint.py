@@ -99,6 +99,10 @@ def main():
         action_ids.add(aid)
         if not action.get('positive_examples'):
             errors.append(f'action_check {aid} missing positive_examples')
+        if 'check_prompt' in action and (
+            not isinstance(action.get('check_prompt'), str) or not action.get('check_prompt', '').strip()
+        ):
+            errors.append(f'action_check {aid} check_prompt must be non-empty string')
         check_skill_check(action.get('skill_check'), f'action_check {aid}')
         if action.get('required_location') and action.get('required_location') not in locs:
             errors.append(f'action_check {aid} required_location unknown: {action.get("required_location")}')
