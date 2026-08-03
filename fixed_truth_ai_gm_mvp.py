@@ -18,11 +18,19 @@ import random
 import re
 import sys
 import time
+import unicodedata
 import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 VERSION = "v2.16.0 [generic-skill-checks]"
+STANDARD_SKILLS = {
+    "investigation": 0,
+    "survival": 0,
+    "persuasion": 0,
+    "athletics": 0,
+    "stealth": 0,
+}
 
 
 class State:
@@ -49,7 +57,13 @@ class Game:
         self.npcs = {x["id"]: x for x in self.sc.get("npcs", [])}
         self.disc = {x["id"]: x for x in self.sc.get("discoverables", [])}
         self.action_checks = list(self.sc.get("action_checks", []) or [])
-        self.player = self.sc.get("player", {"skills": {}})
+        self.player = dict(self.sc.get("player", {}) or {})
+        # Keep the character sheet stable for scenario authors while preserving
+        # scenario-defined values and any future custom skills.
+        self.player["skills"] = {
+            **STANDARD_SKILLS,
+            **(self.player.get("skills", {}) or {}),
+        }
         self.alias = {}
         self.alias_entries = []
         self.alias_seen = set()
@@ -2532,8 +2546,6 @@ class Game:
         # v2.11.3: target-aware routing plus scene-surface target fallback.
         action_check = self.match_action_check(raw, st)
         if action_check:
-            if self.debug:
-                print(f"[ActionRoute] input={raw} route=action-check action=action_skill_check target={action_check.get('id')}")
             return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
         companion = self.companion_target(raw)
         if companion:
@@ -2591,18 +2603,53 @@ class Game:
 
     def match_action_check(self, raw, st=None):
         """Find a scenario-defined, non-object action that matches the utterance."""
-        candidates = []
+        location = st.location if st is not None else None
+        eligible = []
         for check in self.action_checks:
             required_location = check.get("required_location")
-            if required_location and (st is None or st.location != required_location):
-                continue
+            if not required_location or required_location == location:
+                eligible.append(check)
+
+        if self.debug:
+            print(f"[ActionChecks]\nlocation={location}\ntotal={len(self.action_checks)}\neligible={len(eligible)}")
+
+        normalized_raw = self.normalize_action_example(raw)
+        candidates = []
+        for index, check in enumerate(eligible):
             examples = [str(x) for x in check.get("positive_examples", []) if str(x).strip()]
-            literal_hits = [example for example in examples if example in raw]
-            if literal_hits:
-                candidates.append((max(map(len, literal_hits)), check))
+            exact_match = normalized_raw in {self.normalize_action_example(x) for x in examples}
+            if exact_match:
+                score, score_mode = 1.0, "exact"
+            else:
+                score, score_mode = self.score_examples(raw, examples)
+            threshold = 1.0 if score_mode == "lexical" else float(os.getenv("ACTION_CHECK_EMB_THRESHOLD", "0.78"))
+            if self.debug:
+                print(
+                    f"[ActionCheckCandidate]\nid={check.get('id')}"
+                    f"\nrequired_location={check.get('required_location')}"
+                    f"\nlocation_match=True\nexact_match={exact_match}"
+                    f"\nscore={score:.3f}\nmode={score_mode}"
+                )
+            if exact_match or score >= threshold:
+                candidates.append((score, exact_match, -index, check))
+
         if candidates:
-            return max(candidates, key=lambda item: item[0])[1]
+            selected = max(candidates, key=lambda item: item[:3])[3]
+            if self.debug:
+                print(f"[ActionCheckRoute]\ninput={raw}\nid={selected.get('id')}\ndecision=selected")
+            return selected
+
+        if self.debug:
+            location_blocked = bool(self.action_checks) and not eligible
+            reason = "location_mismatch" if location_blocked else "no_similarity_match"
+            print(f"[ActionCheckRoute]\ninput={raw}\ndecision=no_match\nreason={reason}")
         return None
+
+    @staticmethod
+    def normalize_action_example(text):
+        """Normalize author-provided examples without adding game-specific words."""
+        normalized = unicodedata.normalize("NFKC", str(text)).casefold()
+        return re.sub(r"[\s\u3000、。,.!?！？]+", "", normalized)
 
     def move(self, target_id, st):
         if target_id in self.locs and target_id in self.locs[st.location].get("exits", []):
