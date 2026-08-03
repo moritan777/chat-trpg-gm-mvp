@@ -23,6 +23,13 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 VERSION = "v2.16.0 [generic-skill-checks]"
+STANDARD_SKILLS = {
+    "investigation": 0,
+    "survival": 0,
+    "persuasion": 0,
+    "athletics": 0,
+    "stealth": 0,
+}
 
 
 class State:
@@ -49,7 +56,13 @@ class Game:
         self.npcs = {x["id"]: x for x in self.sc.get("npcs", [])}
         self.disc = {x["id"]: x for x in self.sc.get("discoverables", [])}
         self.action_checks = list(self.sc.get("action_checks", []) or [])
-        self.player = self.sc.get("player", {"skills": {}})
+        self.player = dict(self.sc.get("player", {}) or {})
+        # Keep the character sheet stable for scenario authors while preserving
+        # scenario-defined values and any future custom skills.
+        self.player["skills"] = {
+            **STANDARD_SKILLS,
+            **(self.player.get("skills", {}) or {}),
+        }
         self.alias = {}
         self.alias_entries = []
         self.alias_seen = set()
