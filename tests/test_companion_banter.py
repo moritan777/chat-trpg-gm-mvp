@@ -296,12 +296,12 @@ class CompanionBanterTests(unittest.TestCase):
     def test_prompt_distinguishes_what_each_companion_notices_first(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("何が起きたかより、次に何が起きるか", prompt)
-        self.assertIn("危険だけでなく、準備、装備、移動、時間配分、役割分担、負担の偏り", prompt)
-        self.assertIn("「誰がやるか」「どの順番で進めるか」「何を持って行くか」", prompt)
-        self.assertIn("段取りを考えることが多い", prompt)
-        self.assertIn("推理役ではなく実務的な視点", prompt)
-        self.assertIn("解説役や安全指導役には固定しない", prompt)
+        self.assertIn("実務的な視点を持つ", prompt)
+        self.assertIn("毎回段取りや安全確認を始める必要はない", prompt)
+        self.assertIn("周囲の話題に乗ったり、仲間の案を評価したり、雑談を楽しんだり", prompt)
+        self.assertIn("冒険談や想像話に参加", prompt)
+        self.assertIn("実務的な話題は選択肢の一つであり、常に最優先ではない", prompt)
+        self.assertIn("推理役、解説役、安全指導役には固定しない", prompt)
         self.assertIn("小さな要素から妙な連想", prompt)
         self.assertIn("観察そのものより「そこから何を思い付くか」を優先", prompt)
         self.assertIn("霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説", prompt)
@@ -319,10 +319,11 @@ class CompanionBanterTests(unittest.TestCase):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("【話題の派生】", prompt)
-        self.assertIn("同じ内容の繰り返しは避ける", prompt)
-        self.assertIn("前の話題から別の話題への派生を歓迎", prompt)
-        self.assertIn("巨大イカ→沈没船→宝物→霧船→空飛ぶ魚", prompt)
-        self.assertIn("同じ話の反復ではなく、話題を少しずつ発展・変化", prompt)
+        self.assertIn("同じ話題の反復よりも話題の変化・発展を優先", prompt)
+        self.assertIn("巨大イカ→沈没船、沈没船→宝物、宝物→王様、王様→空飛ぶ魚", prompt)
+        self.assertIn("過去2ターン以内に「安全」「確認」「ルート」「装備」", prompt)
+        self.assertIn("同じ内容を再度出す必要はない", prompt)
+        self.assertIn("可能なら別の反応や話題へ進む", prompt)
 
     def test_prompt_defines_kuro_as_unreliable_without_leaking_hidden_truth(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -419,6 +420,33 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("Character=リュート", diagnostics)
         self.assertIn("役割分担=50.0% Count=1", diagnostics)
         self.assertIn("時間配分=50.0% Count=1", diagnostics)
+
+    def test_character_topic_diagnostics_count_ryute_bias_terms(self):
+        game = self.make_game()
+        game.debug_llm = True
+        intent = {"raw": "リュート確認して", "action_type": "consult"}
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.observe_companion_turn(
+                [
+                    "リュート: 安全確認をして装備を点検しよう",
+                    "リュート: 安全なルートを選ぼう",
+                ],
+                intent,
+            )
+            game.print_conversation_stats()
+
+        diagnostics = output.getvalue()
+        self.assertIn("[COMPANION_TOPIC]", diagnostics)
+        self.assertIn("Character=リュート", diagnostics)
+        self.assertIn("Topic=安全", diagnostics)
+        self.assertIn("Topic=確認", diagnostics)
+        self.assertIn("Topic=装備", diagnostics)
+        self.assertIn("Topic=ルート", diagnostics)
+        self.assertIn("CharacterTopic=リュート Topic=安全 Count=2", diagnostics)
+        self.assertIn("CharacterTopic=リュート Topic=確認 Count=1", diagnostics)
+        self.assertIn("CharacterTopic=リュート Topic=装備 Count=1", diagnostics)
+        self.assertIn("CharacterTopic=リュート Topic=ルート Count=1", diagnostics)
 
     def test_nico_focus_distinguishes_observation_from_association(self):
         game = self.make_game()
