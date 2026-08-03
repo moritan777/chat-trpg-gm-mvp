@@ -698,11 +698,14 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("From=harbor", output.getvalue())
         self.assertIn("To=warehouse", output.getvalue())
 
-    def test_fourth_continue_request_expires_without_clearing_history(self):
+    def test_sixth_continue_request_expires_without_clearing_history(self):
         game = self.make_game()
         game.debug_llm = True
         state = State("harbor")
-        old_lines = ["ニコ: 宝物から変な石を思い出した。"]
+        old_lines = [
+            "ニコ: 海王の影と海の意志を思い出した。",
+            "クロ: 忘却都市なら俺も知っているぞ。",
+        ]
         game.remember_companion_turn(
             old_lines,
             {"raw": "全員で雑談して", "action_type": "consult"},
@@ -712,19 +715,27 @@ class CompanionBanterTests(unittest.TestCase):
 
         packets = []
         with redirect_stdout(io.StringIO()) as output:
-            for _ in range(4):
+            for _ in range(6):
                 packets.append(game.packet(intent, [], state))
             game.print_conversation_stats()
 
-        self.assertTrue(all("conversation_context" in packet for packet in packets[:3]))
-        self.assertNotIn("conversation_context", packets[3])
+        self.assertTrue(all("conversation_context" in packet for packet in packets[:5]))
+        self.assertNotIn("conversation_context", packets[5])
         self.assertEqual(game.conversation_continue_count, 0)
         self.assertEqual(game.recent_companion_lines(), old_lines)
         self.assertEqual(game.companion_diagnostics["continue_expire_count"], 1)
         self.assertIn("Reason=ContinueExpired", output.getvalue())
-        self.assertIn("Turns=3", output.getvalue())
+        self.assertIn("Turns=5", output.getvalue())
+        last_topics = next(
+            line for line in output.getvalue().splitlines() if line.startswith("LastTopics=")
+        )
+        self.assertIn("海王", last_topics)
+        self.assertIn("意志", last_topics)
+        self.assertIn("忘却都市", last_topics)
         self.assertIn("ContinueResetCount=0", output.getvalue())
         self.assertIn("ContinueExpireCount=1", output.getvalue())
+        self.assertIn("ContinueWindow=5", output.getvalue())
+        self.assertIn("ConversationResets=1", output.getvalue())
 
     def test_named_and_group_requests_are_structured_as_participant_preferences(self):
         game = self.make_game()
