@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.15.25 会話継続5ターン比較** (`v2.15.25 [five-turn-continuation-window]`)
+現行版: **v2.15.26 シナリオ開始時の地理説明** (`v2.15.26 [opening-geography-guide]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
