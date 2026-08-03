@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.15.26
+Chat-style TTRPG GM MVP v2.16.0
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -22,7 +22,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.15.26 [opening-geography-guide]"
+VERSION = "v2.16.0 [generic-skill-checks]"
 
 
 class State:
@@ -48,6 +48,7 @@ class Game:
         self.objects = {x["id"]: x for x in self.sc.get("objects", [])}
         self.npcs = {x["id"]: x for x in self.sc.get("npcs", [])}
         self.disc = {x["id"]: x for x in self.sc.get("discoverables", [])}
+        self.action_checks = list(self.sc.get("action_checks", []) or [])
         self.player = self.sc.get("player", {"skills": {}})
         self.alias = {}
         self.alias_entries = []
@@ -2175,6 +2176,18 @@ class Game:
             return self.dice_total
         return self.rng.randint(1, 6) + self.rng.randint(1, 6)
 
+    def roll_dice(self, notation="2d6", skill=False):
+        """Roll an NdM expression while preserving deterministic CLI test overrides."""
+        if skill and self.skill_dice_total is not None:
+            return self.skill_dice_total
+        if self.dice_total is not None:
+            return self.dice_total
+        match = re.fullmatch(r"([1-9]\d*)d([1-9]\d*)", str(notation).strip().lower())
+        if not match:
+            raise ValueError(f"unsupported dice notation: {notation}")
+        count, sides = map(int, match.groups())
+        return sum(self.rng.randint(1, sides) for _ in range(count))
+
     def entity_kind(self, key):
         if key in self.locs:
             return "location"
@@ -2517,6 +2530,11 @@ class Game:
 
     def judge(self, raw, st=None):
         # v2.11.3: target-aware routing plus scene-surface target fallback.
+        action_check = self.match_action_check(raw, st)
+        if action_check:
+            if self.debug:
+                print(f"[ActionRoute] input={raw} route=action-check action=action_skill_check target={action_check.get('id')}")
+            return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
         companion = self.companion_target(raw)
         if companion:
             action_type, mode = self.embedded_action_intent(raw, allowed=["consult", "ask"])
@@ -2570,6 +2588,21 @@ class Game:
         if self.debug:
             print(f"[ActionRoute] input={raw} route={mode} action={action_type} target={target_id}")
         return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
+
+    def match_action_check(self, raw, st=None):
+        """Find a scenario-defined, non-object action that matches the utterance."""
+        candidates = []
+        for check in self.action_checks:
+            required_location = check.get("required_location")
+            if required_location and (st is None or st.location != required_location):
+                continue
+            examples = [str(x) for x in check.get("positive_examples", []) if str(x).strip()]
+            literal_hits = [example for example in examples if example in raw]
+            if literal_hits:
+                candidates.append((max(map(len, literal_hits)), check))
+        if candidates:
+            return max(candidates, key=lambda item: item[0])[1]
+        return None
 
     def move(self, target_id, st):
         if target_id in self.locs and target_id in self.locs[st.location].get("exits", []):
@@ -2889,7 +2922,7 @@ class Game:
                 lines.append("[GoalPath] selected=" + str(selected_path.get("id")))
             chk = g.get("check")
             if chk:
-                base = self.roll(False)
+                base = self.roll_dice(chk.get("dice", "2d6"), skill=False)
                 skill = chk.get("skill")
                 sm = self.skill_value(skill)
                 cm, parts = self.clue_mod(skill, st)
@@ -2897,12 +2930,15 @@ class Game:
                 total = base + sm + cm + fixed
                 diff = int(chk.get("difficulty", 0))
                 clue = f" + clue({cm})" if cm else ""
-                lines += [f"判定: {chk.get('dice','2d6')} + {skill}({sm}){clue} + {fixed} >= {diff}", f"結果: {base} + {sm} + {cm} + {fixed} = {total}"]
+                expression = f"{chk.get('dice','2d6')} + {skill}({sm}){clue}"
+                if fixed:
+                    expression += f" + modifier({fixed})"
+                lines += self.format_skill_check(skill, expression, total, diff)
                 if parts:
                     lines.append("補正: " + ", ".join(f"{i}+{v}" for i, v in parts))
                 if total < diff:
                     return lines + ["GM: " + chk.get("failure_text", "判定に失敗しました。")], {"status": "fail", "category": "check"}, []
-                lines.append("判定成功。")
+                lines.append("成功")
             ev = (selected_path or {}).get("success_event") or g.get("success_event", {})
             st.location = ev.get("moves_to", st.location)
             st.ended = True
@@ -2920,20 +2956,70 @@ class Game:
                 notes.append("GM: ここからは、まだ読み取れません。")
                 return notes, {"status": "fail", "category": "skill_check"}, []
             chk = d["skill_check"]
-            base = self.roll(True)
+            base = self.roll_dice(chk.get("dice", "2d6"), skill=True)
             skill = chk["skill"]
             sm = self.skill_value(skill)
             total = base + sm
             diff = int(chk["difficulty"])
-            notes += [f"判定: {chk.get('dice','2d6')} + {skill}({sm}) >= {diff}", f"結果: {base} + {sm} = {total}"]
+            notes += self.format_skill_check(skill, f"{chk.get('dice','2d6')} + {skill}({sm})", total, diff)
             if total >= diff:
                 st.discovered.add(d["id"])
-                notes += ["判定成功。", "発見: " + d["public_text"]]
+                notes += ["成功", "発見: " + d["public_text"]]
                 return notes, {"status": "ok", "category": "skill_check"}, [{"type": "discoverable_revealed", "id": d["id"]}]
-            notes.append("GM: " + chk.get("failure_text", "まだ読み取れません。"))
+            notes += ["失敗", "GM: " + chk.get("failure_text", "まだ読み取れません。")]
             return notes, {"status": "fail", "category": "skill_check"}, []
         notes.append("GM: ここからは、これ以上読み取れません。")
         return notes, {"status": "fail", "category": "skill_check"}, []
+
+    def skill_display_name(self, skill):
+        return {
+            "investigation": "調査",
+            "survival": "生存",
+            "persuasion": "説得",
+            "athletics": "運動",
+            "stealth": "隠密",
+        }.get(skill, skill)
+
+    def format_skill_check(self, skill, expression, total, difficulty):
+        return [
+            f"【{self.skill_display_name(skill)}判定】",
+            expression,
+            "結果:",
+            str(total),
+            "難易度:",
+            str(difficulty),
+        ]
+
+    def apply_action_check_effect(self, effect, st):
+        events = []
+        destination = effect.get("move_to", effect.get("moves_to"))
+        if destination:
+            st.location = destination
+            events.append({"type": "location_changed", "id": destination})
+        if effect.get("delay"):
+            events.append({"type": "action_delayed"})
+        return events
+
+    def run_action_skill_check(self, it, st):
+        check_event = next((x for x in self.action_checks if x.get("id") == it.get("target_id")), None)
+        if not check_event:
+            return ["GM: その判定は定義されていません。"], {"status": "fail", "category": "action_skill_check"}, []
+        check = check_event.get("skill_check", {})
+        skill = check.get("skill", "")
+        notation = check.get("dice", "2d6")
+        base = self.roll_dice(notation, skill=True)
+        modifier = self.skill_value(skill)
+        total = base + modifier
+        difficulty = int(check.get("difficulty", 0))
+        success = total >= difficulty
+        lines = self.format_skill_check(skill, f"{notation} + {skill}({modifier})", total, difficulty)
+        lines.append("成功" if success else "失敗")
+        text_key = "success_text" if success else "failure_text"
+        fallback = "行動に成功しました。" if success else "行動に失敗し、先へ進めません。"
+        lines.append("GM: " + check_event.get(text_key, check.get(text_key, fallback)))
+        effect_key = "success_effect" if success else "failure_effect"
+        events = self.apply_action_check_effect(check_event.get(effect_key, {}) or {}, st)
+        return lines, {"status": "ok" if success else "fail", "category": "action_skill_check", "check_id": check_event.get("id")}, events
 
 
     def first_revealable_in_area(self, st):
@@ -3208,6 +3294,8 @@ class Game:
     # ---- /v2.14.0 Ask Topic Resolver helpers ----
 
     def resolve(self, it, st):
+        if it["action_type"] == "action_skill_check":
+            return self.run_action_skill_check(it, st)
         if it["action_type"] == "area_search":
             return self.area_search(it, st)
         if it["action_type"] == "consult":
