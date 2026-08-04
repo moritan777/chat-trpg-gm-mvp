@@ -62,6 +62,114 @@ class CompanionBanterTests(unittest.TestCase):
             json.dumps(revealed_packet, ensure_ascii=False),
         )
 
+    def test_playful_input_diagnostic_distinguishes_silly_and_regular_actions(self):
+        game = self.make_game()
+        state = State("harbor")
+
+        for raw in ("ランタン舐める", "海に飛び込む", "ニコを崖から落とす", "宝箱あるよな？", "酒全部飲む"):
+            packet = game.packet({"raw": raw, "action_type": "inspect"}, [], state)
+            self.assertTrue(packet["conversation_diagnostics"]["playfulInput"], raw)
+
+        for raw in ("足跡を見る", "村長に聞く", "洞窟へ行く", "外套を見る"):
+            packet = game.packet({"raw": raw, "action_type": "inspect"}, [], state)
+            self.assertFalse(packet["conversation_diagnostics"]["playfulInput"], raw)
+
+    def test_playful_input_debug_log_explains_existing_classification(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("harbor")
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.packet({"raw": "酒盛りしよう", "action_type": "area_search"}, [], state)
+
+        self.assertIn("[PlayfulInput]", output.getvalue())
+        self.assertIn("value=false", output.getvalue())
+        self.assertIn("reason=no_marker_match", output.getvalue())
+
+    def test_unaddressed_consult_intent_becomes_generic_action_and_keeps_raw_input(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.embedded_action_intent = lambda raw, allowed=None: ("consult", "embedding")
+
+        intent = game.judge("酒盛りしよう", state)
+        packet = game.packet(intent, [], state)
+
+        self.assertEqual(intent["action_type"], "action")
+        self.assertIsNone(intent["target_id"])
+        self.assertEqual(intent["raw"], "酒盛りしよう")
+        self.assertEqual(packet["current_event"]["player_input"], "酒盛りしよう")
+
+    def test_group_address_routes_dance_to_companion_consult_without_playful_flag(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.embedded_action_intent = lambda raw, allowed=None: ("inspect", "embedding")
+
+        intent = game.judge("みんなで踊って", state)
+        packet = game.packet(intent, [], state)
+
+        self.assertEqual(intent["action_type"], "consult")
+        self.assertEqual(intent["target_id"], "companion:全員")
+        self.assertFalse(packet["conversation_diagnostics"]["playfulInput"])
+        self.assertEqual(packet["current_event"]["player_input"], "みんなで踊って")
+
+    def test_targetless_free_inputs_use_existing_generic_action_route(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.get_embeddings = lambda texts: None
+
+        for raw in (
+            "今日はどうする？",
+            "誰か案ある？",
+            "いったん整理しよう",
+            "怖くなってきた",
+            "疲れた",
+            "帰りたい",
+            "ありがとう",
+            "酒盛りしよう",
+        ):
+            with self.subTest(raw=raw):
+                intent = game.judge(raw, state)
+                notes, result, events = game.resolve(intent, state)
+                self.assertEqual(intent["action_type"], "action")
+                self.assertIsNone(intent["target_id"])
+                self.assertEqual(result, {"status": "ok", "category": "action"})
+                self.assertEqual(events, [])
+                self.assertNotIn("周囲を見渡し", "\n".join(notes))
+
+    def test_low_confidence_embedding_uses_generic_action_without_target_constraints(self):
+        game = self.make_game()
+        game.get_embeddings = lambda texts: [[1.0, 0.0]] + [[0.0, 1.0]] * (len(texts) - 1)
+
+        action_type, mode = game.embedded_action_intent("分類不能な自由入力")
+
+        self.assertEqual((action_type, mode), ("action", "embedding"))
+
+    def test_explicit_companion_consults_keep_consult_route(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.get_embeddings = lambda texts: None
+
+        for raw, target in (
+            ("みんなどう思う？", "companion:全員"),
+            ("ガランに相談する", "companion:ガラン"),
+        ):
+            with self.subTest(raw=raw):
+                intent = game.judge(raw, state)
+                self.assertEqual(intent["action_type"], "consult")
+                self.assertEqual(intent["target_id"], target)
+
+    def test_prompt_limits_playful_mode_and_balances_kuro_and_garan(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("卓の盛り上げ役", prompt)
+        self.assertIn("根拠の薄い説や大げさな想像", prompt)
+        self.assertIn("進行を止める誘導は禁止", prompt)
+        self.assertIn("行動役ではなく軽い段取り役", prompt)
+        self.assertIn("推理主導はPLに残す", prompt)
+        self.assertIn("conversation_diagnostics.playfulInput=trueの時だけ", prompt)
+        self.assertIn("2名以上", prompt)
+        self.assertIn("次ターンへ持ち越さない", prompt)
+
     def test_revealed_object_still_uses_surface_companion_stage(self):
         game = self.make_game()
         state = State("light_room")
@@ -218,6 +326,8 @@ class CompanionBanterTests(unittest.TestCase):
             return output.getvalue()
 
         self.assertIn("[TABLE_TURN_TEMPERATURE] 0.9", render(True))
+        self.assertIn("[TABLE_PROMPT_USER_INPUT]\nランタンを見る", render(True))
+        self.assertIn("[TABLE_PROMPT_ACTION]\ninspect", render(True))
         self.assertIn(
             "[TABLE_TURN_TEMPERATURE] 1.0",
             render(True, {"TABLE_TURN_TEMPERATURE": "1.0"}),
@@ -227,6 +337,7 @@ class CompanionBanterTests(unittest.TestCase):
             render(True, {"GM_LINE_REWRITE_TEMPERATURE": "0.8"}),
         )
         self.assertNotIn("[TABLE_TURN_TEMPERATURE]", render(False))
+        self.assertNotIn("[TABLE_PROMPT_USER_INPUT]", render(False))
 
     def test_system_prompt_prioritizes_observation_without_weakening_discovery(self):
         game = self.make_game()
@@ -253,7 +364,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない", prompt)
         self.assertIn("本人の反応をGM本文で先回りしない", prompt)
         self.assertLessEqual(len(prompt), 2200)
-        self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1320)
+        self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1400)
 
     def test_prompt_separates_fact_priority_from_conversation_focus(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -329,21 +440,19 @@ class CompanionBanterTests(unittest.TestCase):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("【クロ】", prompt)
-        self.assertIn("事件性、異常事態、騒ぎ、目立つ出来事", prompt)
-        self.assertIn("静かな観察対象よりも", prompt)
+        self.assertIn("事件性、異常事態、騒ぎ", prompt)
         self.assertIn("見栄、ホラ話、勘違い、自信満々な推測", prompt)
-        self.assertIn("正しい必要はない", prompt)
+        self.assertIn("正解でなくてよく", prompt)
         self.assertIn("未発見情報や真相を事実として知っているわけではない", prompt)
 
     def test_prompt_defines_garan_as_action_oriented_not_an_analyst(self):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("【ガラン】", prompt)
-        self.assertIn("行動可能な対象が見えると反応しやすい", prompt)
-        self.assertIn("単なる観察対象には必ずしも興味を示さない", prompt)
-        self.assertIn("試す、開ける、押す、壊す、登る", prompt)
-        self.assertIn("分析役にならず", prompt)
-        self.assertIn("単純で雑な解決案", prompt)
+        self.assertIn("行動役ではなく軽い段取り役", prompt)
+        self.assertIn("次に何を試すか、どちらを先に見るか", prompt)
+        self.assertIn("候補を挙げたり順番をPLへ尋ねたり", prompt)
+        self.assertIn("推理を『絶対これだ』と断定せず", prompt)
 
     def test_prompt_treats_non_investigative_curiosity_as_normal(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -544,7 +653,10 @@ class CompanionBanterTests(unittest.TestCase):
         packet = game.packet(current_intent, [], state)
         history = packet["recent_companion_lines"]
 
-        self.assertEqual(set(packet), {"current_event", "current_observations", "recent_companion_lines", "safety"})
+        self.assertEqual(
+            set(packet),
+            {"conversation_diagnostics", "current_event", "current_observations", "recent_companion_lines", "safety"},
+        )
         self.assertEqual(packet["current_event"]["target_id"], "cliff_footprints")
         self.assertEqual(history["label"], "reference_only_past_turn")
         self.assertEqual(history["previous_scene"]["target"], "broken_lantern")
