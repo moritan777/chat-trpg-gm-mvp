@@ -37,6 +37,32 @@ class ActionSkillCheckTests(unittest.TestCase):
                     "failure_text": "足場をつかめず、崖下に留まります。",
                     "success_effect": {"move_to": "upper_cliff"},
                     "failure_effect": {"delay": True},
+                },
+                {
+                    "id": "read_stones",
+                    "required_location": "lower_cliff",
+                    "positive_examples": ["石碑を読む", "古い石碑を調べる"],
+                    "skill_check": {"skill": "investigation", "dice": "2d6", "difficulty": 8},
+                    "on_critical_success": {
+                        "text": "石碑の本文に加え、隠し刻印まで読み取れました。",
+                        "effect": {"event": {"type": "rank_outcome", "rank": "CriticalSuccess"}},
+                    },
+                    "on_success": {
+                        "text": "石碑の本文を読み取れました。",
+                        "effect": {"event": {"type": "rank_outcome", "rank": "Success"}},
+                    },
+                    "on_partial_success": {
+                        "text": "石碑の一部だけ読み取れました。",
+                        "effect": {"event": {"type": "rank_outcome", "rank": "PartialSuccess"}},
+                    },
+                    "on_failure": {
+                        "text": "石碑の内容は読み取れませんでした。",
+                        "effect": {"event": {"type": "rank_outcome", "rank": "Failure"}},
+                    },
+                    "on_critical_failure": {
+                        "text": "石碑を読み違え、不穏な誤解が残りました。",
+                        "effect": {"event": {"type": "rank_outcome", "rank": "CriticalFailure"}},
+                    },
                 }
             ],
         }
@@ -107,6 +133,51 @@ class ActionSkillCheckTests(unittest.TestCase):
             ],
             lines[:7],
         )
+
+    def test_result_rank_narration_is_added_after_dice_presentation(self):
+        _state, _intent, (lines, _result, _events) = self.run_climb(6)
+        self.assertEqual("GM: 結果ランク: PartialSuccess", lines[6])
+        self.assertEqual("GM: あと一歩でした。", lines[7])
+        self.assertEqual("GM: 完全ではありませんが、何らかの成果は得られます。", lines[8])
+
+    def test_rank_specific_action_outcomes_fire_for_each_result_rank(self):
+        cases = (
+            (10, "CriticalSuccess", "ok", "石碑の本文に加え、隠し刻印まで読み取れました。"),
+            (8, "Success", "ok", "石碑の本文を読み取れました。"),
+            (5, "PartialSuccess", "ok", "石碑の一部だけ読み取れました。"),
+            (2, "Failure", "fail", "石碑の内容は読み取れませんでした。"),
+            (-1, "CriticalFailure", "fail", "石碑を読み違え、不穏な誤解が残りました。"),
+        )
+        for dice_total, rank, status, text in cases:
+            with self.subTest(rank=rank):
+                game = Game(self.temp_dir.name, skill_dice_total=dice_total)
+                state = State("lower_cliff")
+                intent = game.judge("石碑を読む", state)
+                lines, result, events = game.resolve(intent, state)
+
+                self.assertEqual("action_skill_check", intent["action_type"])
+                self.assertEqual(rank, result["result_rank"])
+                self.assertEqual(rank, result["outcome_rank"])
+                self.assertEqual(status, result["status"])
+                self.assertIn("GM: " + text, lines)
+                self.assertIn({"type": "rank_outcome", "rank": rank}, events)
+
+    def test_missing_rank_specific_outcome_uses_compatible_binary_fallback(self):
+        state, _intent, (lines, result, events) = self.run_climb(10)
+        self.assertEqual("CriticalSuccess", result["result_rank"])
+        self.assertEqual("Success", result["outcome_rank"])
+        self.assertEqual("ok", result["status"])
+        self.assertEqual("upper_cliff", state.location)
+        self.assertIn("GM: 足場を選び、崖の上へ登り切りました。", lines)
+        self.assertIn({"type": "location_changed", "id": "upper_cliff"}, events)
+
+        state, _intent, (lines, result, events) = self.run_climb(6)
+        self.assertEqual("PartialSuccess", result["result_rank"])
+        self.assertEqual("Failure", result["outcome_rank"])
+        self.assertEqual("fail", result["status"])
+        self.assertEqual("lower_cliff", state.location)
+        self.assertIn("GM: 足場をつかめず、崖下に留まります。", lines)
+        self.assertIn({"type": "action_delayed"}, events)
 
     def test_check_is_only_available_at_required_location(self):
         game = Game(self.temp_dir.name, skill_dice_total=7)

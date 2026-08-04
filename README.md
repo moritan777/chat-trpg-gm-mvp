@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.18.0 5段階判定・GMダイス演出** (`v2.18.0 [five-rank-dice-presentation]`)
+現行版: **v2.19.0 ランク別判定結果** (`v2.19.0 [ranked-check-outcomes]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -48,6 +48,8 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 * オブジェクトに依存しない汎用技能判定と成功・失敗効果
 * 判定結果の5段階ランク（`CriticalSuccess` / `Success` / `PartialSuccess` / `Failure` / `CriticalFailure`）
 * 出目、技能・手掛かり補正、最終値、結果ランクを順に伝えるGMダイス演出
+* 判定イベントに任意のランク別結果（`on_critical_success` / `on_success` / `on_partial_success` / `on_failure` / `on_critical_failure`）を定義可能
+* ランク別結果が未定義の場合は、既存互換のため大成功は成功、部分成功・大失敗は失敗として扱う
 
 ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.18.0
+Chat-style TTRPG GM MVP v2.19.0
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -23,7 +23,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.18.0 [five-rank-dice-presentation]"
+VERSION = "v2.19.0 [ranked-check-outcomes]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -1695,8 +1695,68 @@ class Game:
             f"GM: 結果ランク: {rank}",
         ]
 
+    @staticmethod
+    def result_rank_narration(rank):
+        return {
+            "CriticalSuccess": ["GM: 見事な成功です。", "GM: 予想以上の成果が得られました。"],
+            "Success": ["GM: 成功です。"],
+            "PartialSuccess": ["GM: あと一歩でした。", "GM: 完全ではありませんが、何らかの成果は得られます。"],
+            "Failure": ["GM: 失敗です。"],
+            "CriticalFailure": ["GM: 大きく失敗しました。"],
+        }.get(rank, ["GM: 成功です。"])
+
+    @staticmethod
+    def default_outcome_rank(rank):
+        """Map five-level ranks to existing binary outcomes for compatibility."""
+        if rank in {"CriticalSuccess", "Success"}:
+            return "success"
+        return "failure"
+
+    @staticmethod
+    def outcome_key_for_rank(rank):
+        return {
+            "CriticalSuccess": "on_critical_success",
+            "Success": "on_success",
+            "PartialSuccess": "on_partial_success",
+            "Failure": "on_failure",
+            "CriticalFailure": "on_critical_failure",
+        }.get(rank)
+
+    def action_check_outcome(self, check_event, rank):
+        rank_key = self.outcome_key_for_rank(rank)
+        outcome = check_event.get(rank_key) if rank_key else None
+        outcome_rank = rank
+        if not isinstance(outcome, dict):
+            outcome_rank = "Success" if self.default_outcome_rank(rank) == "success" else "Failure"
+            fallback_key = self.outcome_key_for_rank(outcome_rank)
+            outcome = check_event.get(fallback_key) if fallback_key else None
+        return outcome if isinstance(outcome, dict) else {}, outcome_rank
+
+    def action_check_text(self, check_event, check, outcome, outcome_rank):
+        text = outcome.get("text", outcome.get("result_text"))
+        if text:
+            return text
+        text_key = "success_text" if self.default_outcome_rank(outcome_rank) == "success" else "failure_text"
+        fallback = "行動に成功しました。" if text_key == "success_text" else "行動に失敗し、先へ進めません。"
+        return check_event.get(text_key, check.get(text_key, fallback))
+
+    def action_check_effect(self, check_event, outcome, outcome_rank):
+        effect = outcome.get("effect", outcome.get("effects"))
+        if isinstance(effect, dict):
+            return effect
+        effect_key = "success_effect" if self.default_outcome_rank(outcome_rank) == "success" else "failure_effect"
+        return check_event.get(effect_key, {}) or {}
+
     def apply_action_check_effect(self, effect, st):
         events = []
+        custom_events = effect.get("events", [])
+        if isinstance(custom_events, dict):
+            custom_events = [custom_events]
+        if isinstance(custom_events, list):
+            events.extend([event for event in custom_events if isinstance(event, dict)])
+        custom_event = effect.get("event")
+        if isinstance(custom_event, dict):
+            events.append(custom_event)
         destination = effect.get("move_to", effect.get("moves_to"))
         if destination:
             st.location = destination
@@ -1716,20 +1776,19 @@ class Game:
         modifier = self.skill_value(skill)
         total = base + modifier
         difficulty = int(check.get("difficulty", 0))
-        success = total >= difficulty
         check_prompt = check_event.get("check_prompt")
         if not isinstance(check_prompt, str) or not check_prompt.strip():
             check_prompt = "この行動が成功するか判定します。"
         rank = self.check_result_rank(total, difficulty)
+        outcome, outcome_rank = self.action_check_outcome(check_event, rank)
         lines = self.format_skill_check(notation, base, modifier, 0, total, rank)
+        lines += self.result_rank_narration(rank)
         lines.append("GM: " + check_prompt.strip())
-        lines.append("成功" if success else "失敗")
-        text_key = "success_text" if success else "failure_text"
-        fallback = "行動に成功しました。" if success else "行動に失敗し、先へ進めません。"
-        lines.append("GM: " + check_event.get(text_key, check.get(text_key, fallback)))
-        effect_key = "success_effect" if success else "failure_effect"
-        events = self.apply_action_check_effect(check_event.get(effect_key, {}) or {}, st)
-        return lines, {"status": "ok" if success else "fail", "category": "action_skill_check", "check_id": check_event.get("id"), "result_rank": rank}, events
+        outcome_success = self.default_outcome_rank(outcome_rank) == "success" or outcome_rank == "PartialSuccess"
+        lines.append("成功" if outcome_success else "失敗")
+        lines.append("GM: " + self.action_check_text(check_event, check, outcome, outcome_rank))
+        events = self.apply_action_check_effect(self.action_check_effect(check_event, outcome, outcome_rank), st)
+        return lines, {"status": "ok" if outcome_success else "fail", "category": "action_skill_check", "check_id": check_event.get("id"), "result_rank": rank, "outcome_rank": outcome_rank}, events
 
 
     def first_revealable_in_area(self, st):
