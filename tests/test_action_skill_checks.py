@@ -174,6 +174,59 @@ class LighthouseActionSkillCheckIntegrationTests(unittest.TestCase):
         self.assertEqual("move", game.judge("灯台入口へ行く", state)["action_type"])
         self.assertNotEqual("action_skill_check", game.judge("ニコに聞く", state)["action_type"])
 
+    def test_explicit_footprints_inspection_beats_action_check_embedding(self):
+        game = Game(self.temp_dir.name, debug_judge=True)
+        game.score_examples = lambda _raw, _examples: (0.99, "embedding")
+        state = State("cliff_path")
+        state.discovered.add("broken_lantern_clue")
+        output = StringIO()
+
+        with redirect_stdout(output):
+            intent = game.judge("足跡を見る", state)
+            lines, _result, _events = game.resolve(intent, state)
+
+        self.assertEqual("inspect", intent["action_type"])
+        self.assertEqual("cliff_footprints", intent["target_id"])
+        self.assertIn("cliff_tracks_to_shore", state.discovered)
+        self.assertFalse(any("【生存判定】" in line for line in lines))
+        self.assertIn("decision=skipped\nreason=explicit_object_target", output.getvalue())
+        self.assertNotIn("id=climb_cliff\ndecision=selected", output.getvalue())
+
+    def test_explicit_footprints_examine_beats_action_check_embedding(self):
+        game = Game(self.temp_dir.name)
+        game.score_examples = lambda _raw, _examples: (0.99, "embedding")
+        intent = game.judge("足跡を調べる", State("cliff_path"))
+        self.assertEqual(("inspect", "cliff_footprints"), (intent["action_type"], intent["target_id"]))
+
+    def test_explicit_lantern_inspection_reveals_clue(self):
+        game = Game(self.temp_dir.name)
+        game.score_examples = lambda _raw, _examples: (0.99, "embedding")
+        state = State("cliff_path")
+        intent = game.judge("ランタンを見る", state)
+        game.resolve(intent, state)
+        self.assertEqual(("inspect", "broken_lantern"), (intent["action_type"], intent["target_id"]))
+        self.assertIn("broken_lantern_clue", state.discovered)
+
+    def test_explicit_exits_beat_action_check_embedding(self):
+        for raw, destination in (("岩場へ行く", "rocky_shore"), ("灯台入口へ行く", "lighthouse_entrance")):
+            with self.subTest(raw=raw):
+                game = Game(self.temp_dir.name)
+                game.score_examples = lambda _raw, _examples: (0.99, "embedding")
+                intent = game.judge(raw, State("cliff_path"))
+                self.assertEqual(("move", destination), (intent["action_type"], intent["target_id"]))
+
+    def test_natural_climb_still_uses_embedding(self):
+        game = Game(self.temp_dir.name)
+        game.score_examples = lambda _raw, _examples: (0.90, "embedding")
+        intent = game.judge("この崖をよじ登って上へ進む", State("cliff_path"))
+        self.assertEqual(("action_skill_check", "climb_cliff"), (intent["action_type"], intent["target_id"]))
+
+    def test_explicit_npc_question_skips_action_check(self):
+        game = Game(self.temp_dir.name)
+        game.score_examples = lambda _raw, _examples: (0.99, "embedding")
+        intent = game.judge("少年に洞窟のことを聞く", State("rocky_shore"))
+        self.assertEqual(("ask", "boy"), (intent["action_type"], intent["target_id"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1099,18 +1099,45 @@ class Game:
             return "inspect"
         return action_type
 
+    def explicit_scene_target(self, raw, st):
+        """Return an explicitly named target that is interactable in this scene."""
+        if st is None:
+            return None
+        target_id = self.target(raw, "inspect", st)
+        kind = self.entity_kind(target_id)
+        if kind == "object" and self.object_visible_here(target_id, st):
+            return target_id
+        if kind == "npc" and self.npc_present_here(target_id, st):
+            return target_id
+        if kind == "location" and (
+            target_id == st.location
+            or target_id in self.locs.get(st.location, {}).get("exits", [])
+        ):
+            return target_id
+        surface = self.surface_target(raw, st)
+        return surface if surface else None
+
     def judge(self, raw, st=None):
         # v2.11.3: target-aware routing plus scene-surface target fallback.
-        action_check = self.match_action_check(raw, st)
-        if action_check:
-            return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
         companion = self.companion_target(raw)
+        explicit_target = companion or self.explicit_scene_target(raw, st)
+        if explicit_target:
+            if self.debug:
+                reason_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
+                print(
+                    f"[ActionCheckRoute]\ninput={raw}\ndecision=skipped"
+                    f"\nreason=explicit_{reason_kind}_target"
+                )
+        else:
+            action_check = self.match_action_check(raw, st)
+            if action_check:
+                return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
         if companion:
             action_type, mode = self.embedded_action_intent(raw, allowed=["consult", "ask"])
             action_type = "consult" if action_type not in {"consult", "ask"} else action_type
             target_id = companion
         else:
-            preliminary_target = self.target(raw, "inspect", st)
+            preliminary_target = explicit_target or self.target(raw, "inspect", st)
             if preliminary_target is None:
                 preliminary_target = self.surface_target(raw, st)
             kind = self.entity_kind(preliminary_target)
@@ -1155,6 +1182,12 @@ class Game:
                 target_id = None if action_type == "area_search" else self.target(raw, action_type, st)
                 action_type = self.refine_action_with_target(action_type, target_id)
         if self.debug:
+            if explicit_target:
+                explicit_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
+                print(
+                    f"[ExplicitTargetRoute]\ninput={raw}\ntarget={explicit_target}"
+                    f"\nkind={explicit_kind}\naction={action_type}\ndecision=selected"
+                )
             print(f"[ActionRoute] input={raw} route={mode} action={action_type} target={target_id}")
         return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
 
