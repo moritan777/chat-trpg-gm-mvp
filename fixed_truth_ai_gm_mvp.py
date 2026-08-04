@@ -2016,7 +2016,7 @@ class Game:
         elif target_id in self.npcs:
             notes.append(f"GM: {self.npcs[target_id]['name']}と会話します。")
         else:
-            notes.append("GM: あなたは状況を整理します。")
+            notes.append("GM: あなたの言葉に仲間たちが反応します。")
         if it["action_type"] == "skill_check":
             return self.run_skill(it, st, notes)
         comments = []
