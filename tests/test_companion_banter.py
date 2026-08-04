@@ -164,8 +164,8 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("卓の盛り上げ役", prompt)
         self.assertIn("根拠の薄い説や大げさな想像", prompt)
         self.assertIn("進行を止める誘導は禁止", prompt)
-        self.assertIn("行動役ではなく軽い段取り役", prompt)
-        self.assertIn("推理主導はPLに残す", prompt)
+        self.assertIn("まず動いてみることを好む", prompt)
+        self.assertIn("判断はPLへ残す", prompt)
         self.assertIn("conversation_diagnostics.playfulInput=trueの時だけ", prompt)
         self.assertIn("2名以上", prompt)
         self.assertIn("次ターンへ持ち越さない", prompt)
@@ -363,7 +363,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("canonical_gm_textに沿い", prompt)
         self.assertIn("Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない", prompt)
         self.assertIn("本人の反応をGM本文で先回りしない", prompt)
-        self.assertLessEqual(len(prompt), 2200)
+        self.assertLessEqual(len(prompt), 2400)
         self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1400)
 
     def test_prompt_separates_fact_priority_from_conversation_focus(self):
@@ -449,10 +449,21 @@ class CompanionBanterTests(unittest.TestCase):
         prompt = self.make_game().companion_banter_prompt()
 
         self.assertIn("【ガラン】", prompt)
-        self.assertIn("行動役ではなく軽い段取り役", prompt)
-        self.assertIn("次に何を試すか、どちらを先に見るか", prompt)
-        self.assertIn("候補を挙げたり順番をPLへ尋ねたり", prompt)
-        self.assertIn("推理を『絶対これだ』と断定せず", prompt)
+        self.assertIn("考え込むより試す、様子を見るより行ってみる", prompt)
+        self.assertIn("崖なら登ろうとする", prompt)
+        self.assertIn("気になる相手がいるなら話しかけようとする", prompt)
+        self.assertIn("必ずしも正しい判断でなくてよい", prompt)
+        self.assertIn("段取りの提案は控えめにする", prompt)
+        self.assertIn("推理を断定したり主導したりはしない", prompt)
+        self.assertIn("判断はPLへ残す", prompt)
+
+    def test_prompt_encourages_nico_to_continue_from_observation_to_association(self):
+        prompt = self.make_game().companion_banter_prompt()
+
+        self.assertIn("【ニコ】", prompt)
+        self.assertIn("観察で終わらず", prompt)
+        self.assertIn("昔話、噂、妙な想像、全く別の話題", prompt)
+        self.assertIn("単なる観察報告だけより、連想先まで話す方を好む", prompt)
 
     def test_prompt_treats_non_investigative_curiosity_as_normal(self):
         prompt = self.make_game().companion_banter_prompt()
