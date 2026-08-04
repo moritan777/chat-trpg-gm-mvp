@@ -318,6 +318,7 @@ Discoverable は手掛かりです。
         "dice": "2d6",
         "difficulty": 8
       },
+      "check_prompt": "崖はぬかるみ、足場も不安定です。安全に登れるか、生存判定を行います。",
       "success_text": "崖の上へ登り切った。",
       "failure_text": "足場をつかめず、その場に留まった。",
       "success_effect": {"move_to": "upper_cliff"},
@@ -326,6 +327,10 @@ Discoverable は手掛かりです。
   ]
 }
 ```
+
+`check_prompt` はダイス表示の直前に `GM:` の説明として表示されます。判定が必要な
+理由や周囲の危険を、結果を先取りせずに記述してください。省略した場合は
+「この行動が成功するか判定します。」という共通説明が表示されます。
 
 標準技能キーは `investigation`、`survival`、`persuasion`、`athletics`、`stealth`
 です。今回の汎用判定は移動 (`move_to`) と足止め (`delay`) を扱い、HP、負傷、毒などの

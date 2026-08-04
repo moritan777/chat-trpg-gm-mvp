@@ -18,11 +18,19 @@ import random
 import re
 import sys
 import time
+import unicodedata
 import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 VERSION = "v2.16.0 [generic-skill-checks]"
+STANDARD_SKILLS = {
+    "investigation": 0,
+    "survival": 0,
+    "persuasion": 0,
+    "athletics": 0,
+    "stealth": 0,
+}
 
 
 class State:
@@ -49,7 +57,13 @@ class Game:
         self.npcs = {x["id"]: x for x in self.sc.get("npcs", [])}
         self.disc = {x["id"]: x for x in self.sc.get("discoverables", [])}
         self.action_checks = list(self.sc.get("action_checks", []) or [])
-        self.player = self.sc.get("player", {"skills": {}})
+        self.player = dict(self.sc.get("player", {}) or {})
+        # Keep the character sheet stable for scenario authors while preserving
+        # scenario-defined values and any future custom skills.
+        self.player["skills"] = {
+            **STANDARD_SKILLS,
+            **(self.player.get("skills", {}) or {}),
+        }
         self.alias = {}
         self.alias_entries = []
         self.alias_seen = set()
@@ -156,33 +170,7 @@ class Game:
                 f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
             ) from exc
 
-    def table_turn_temperature(self):
-        """Return the effective Table Turn temperature with legacy fallback support."""
-        variable = "TABLE_TURN_TEMPERATURE"
-        value = os.getenv(variable)
-        if value is None:
-            variable = "GM_LINE_REWRITE_TEMPERATURE"
-            value = os.getenv(variable, "0.9")
-        try:
-            return float(value)
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
-            ) from exc
 
-    def table_turn_temperature(self):
-        """Return the effective Table Turn temperature with legacy fallback support."""
-        variable = "TABLE_TURN_TEMPERATURE"
-        value = os.getenv(variable)
-        if value is None:
-            variable = "GM_LINE_REWRITE_TEMPERATURE"
-            value = os.getenv(variable, "0.9")
-        try:
-            return float(value)
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid {variable}: {value}. Expected a numeric value such as 0.9"
-            ) from exc
 
     def llm_desc(self):
         if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
@@ -552,1410 +540,6 @@ class Game:
                 if turn > record["created_turn"] and character in speakers
             )
             print(f"Character={character} TopicsCreated={created} TopicsSurvived={survived}")
-
-    def companion_speaker(self, line):
-        """Return the companion name at the start of a rendered dialogue line."""
-        text = str(line).strip()
-        return next((name for name in self.companion_names() if text.startswith(name)), "")
-
-    def companion_focus(self, speaker, line=None):
-        """Classify a line for diagnostics only; never influence generation."""
-        if line is None:  # Compatibility for callers using the v2.15.19 signature.
-            line = speaker
-            speaker = self.companion_speaker(line)
-        if speaker == "ニコ" and any(
-            word in line
-            for word in (
-                "連想", "思い出", "そういえば", "聞いたこと", "みたい", "だったり",
-                "巨大イカ", "宝物", "空飛ぶ魚", "怪物", "伝説", "昔話",
-            )
-        ):
-            return "妙な連想"
-        if speaker == "ピピ":
-            npc_terms = []
-            for npc in self.npcs.values():
-                npc_terms.append(str(npc.get("name", "")))
-                npc_terms.extend(str(alias) for alias in npc.get("aliases", []) or [])
-            if "NPC" in line or any(term and term in line for term in npc_terms):
-                return "NPC"
-            if any(word in line for word in ("体調", "疲れ", "休", "怪我", "痛", "顔色")):
-                return "体調"
-            if any(word in line for word in ("不安", "怖", "心配", "大丈夫")):
-                return "不安"
-            if any(word in line for word in ("仲間", "みんな", "無理", "困", "様子")):
-                return "仲間の様子"
-        if speaker == "リュート":
-            if any(word in line for word in ("役割", "分担", "誰が", "担当")):
-                return "役割分担"
-            if any(word in line for word in ("時間", "先に", "後で", "順番")):
-                return "時間配分"
-            if any(word in line for word in ("装備", "道具", "持って", "荷物")):
-                return "装備"
-            if any(word in line for word in ("段取り", "準備", "移動", "ルート", "確認", "確保", "点検")):
-                return "段取り"
-        categories = [
-            ("段取り", ("段取り", "準備", "装備", "順番", "役割", "時間", "持って")),
-            ("仲間の様子", ("体調", "疲れ", "無理", "大丈夫", "心配", "様子", "休")),
-            ("行動", ("やる", "行こう", "試す", "開け", "押す", "壊す", "登る")),
-            ("観察", ("違和感", "音", "匂い", "形", "見える", "気になる")),
-            ("面白さ", ("面白", "すごい", "騒ぎ", "俺なら", "実は")),
-        ]
-        return next((label for label, words in categories if any(word in line for word in words)), "その他")
-
-    def companion_topics(self, lines):
-        """Extract repeated surface terms as a deliberately lightweight topic signal."""
-        ignored = {
-            "全員", "仲間", "今回", "自分", "様子", "気持ち", "本当", "一緒", "問題", "話して",
-        }
-        topics = set()
-        for line in lines:
-            dialogue = re.sub(r"^[^:：「『]+[:：]?[「『]?", "", str(line))
-            compounds = re.findall(r"[一-龠ァ-ヶー]{2,}", dialogue)
-            phrases = re.findall(
-                r"([一-龠ァ-ヶー][一-龠ァ-ヶーぁ-ん]{1,12}?)(?=の(?:話|影|こと))",
-                dialogue,
-            )
-            phrases = [
-                term for term in phrases
-                if not any(separator in term for separator in ("と", "や", "または", "そして"))
-            ]
-            for term in compounds + phrases:
-                term = re.sub(r"^(?:それなら|それ|その|じゃあ|でも|確かに|たしかに)", "", term)
-                if term not in ignored and not any(name in term for name in self.companion_names()):
-                    if len(term) >= 2:
-                        topics.add(term)
-        return topics
-
-    def companion_character_topics(self, line):
-        """Return normalized diagnostic topics without influencing generation."""
-        normalized = {
-            "安全": ("安全", "危険", "退路"),
-            "確認": ("確認", "点検", "チェック"),
-            "ルート": ("ルート", "経路", "道順", "移動"),
-            "装備": ("装備", "道具", "荷物", "持って"),
-            "段取り": ("段取り", "準備", "役割", "分担", "順番", "時間配分"),
-        }
-        topics = {
-            topic for topic, words in normalized.items() if any(word in line for word in words)
-        }
-        return topics or self.companion_topics([line])
-
-    def observe_companion_turn(self, lines, it):
-        """Collect and print non-invasive conversation-chain diagnostics."""
-        companion_lines = [str(line).strip() for line in lines if self.companion_speaker(line)]
-        if not companion_lines:
-            return
-        stats = self.companion_diagnostics
-        stats["observed_turns"] += 1
-        turn_number = stats["observed_turns"]
-        prior_speakers = [self.companion_speaker(line) for line in self.recent_companion_lines()]
-        seen_speakers = [name for name in prior_speakers if name]
-        continuation = self.continues_companion_conversation(it.get("raw", ""))
-        reaction_cues = ("それ", "その", "そう", "たしかに", "確かに", "でも", "じゃあ", "なら", "うん", "いや")
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            mentioned = [name for name in seen_speakers if name != speaker and name in line]
-            responded_to = mentioned[-1] if mentioned else ""
-            if not responded_to and continuation and any(cue in line for cue in reaction_cues):
-                responded_to = next((name for name in reversed(seen_speakers) if name != speaker), "")
-            stats["companion_turns"] += 1
-            focus = self.companion_focus(speaker, line)
-            character_focus = stats["focus_counts"].setdefault(speaker, {})
-            character_focus[focus] = character_focus.get(focus, 0) + 1
-            character_topics = stats["character_topic_counts"].setdefault(speaker, {})
-            for topic in sorted(self.companion_character_topics(line)):
-                character_topics[topic] = character_topics.get(topic, 0) + 1
-                if self.debug_llm or self.debug:
-                    print("[COMPANION_TOPIC]")
-                    print("Character=" + speaker)
-                    print("Topic=" + topic)
-            if responded_to:
-                stats["direct_responses"] += 1
-                key = f"{speaker}->{responded_to}"
-                stats["response_targets"][key] = stats["response_targets"].get(key, 0) + 1
-            if self.debug_llm or self.debug:
-                print("[COMPANION_DIAGNOSTICS]")
-                print("Character=" + speaker)
-                print("Trigger=" + ("会話継続" if continuation else "場面反応"))
-                print("RespondedTo=" + (responded_to or "なし"))
-                print("Focus=" + focus)
-            seen_speakers.append(speaker)
-
-        current_topics = set()
-        topics_by_speaker = {}
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            for topic in self.companion_topics([line]):
-                current_topics.add(topic)
-                topics_by_speaker.setdefault(speaker, set()).add(topic)
-                stats["topic_turns"].setdefault(topic, set()).add(turn_number)
-                record = stats["topics"].setdefault(
-                    topic,
-                    {
-                        "origin": speaker,
-                        "created_turn": turn_number,
-                        "last_referenced": turn_number,
-                        "turns": set(),
-                        "speakers_by_turn": {},
-                    },
-                )
-                record["last_referenced"] = turn_number
-                record["turns"].add(turn_number)
-                record["speakers_by_turn"].setdefault(turn_number, set()).add(speaker)
-
-        nico_topics = topics_by_speaker.get("ニコ", set())
-        stats["nico_topics"].update(nico_topics)
-        previous_topics = stats["previous_topics"]
-        if previous_topics and current_topics:
-            overlap = previous_topics & current_topics
-            new_topics = current_topics - previous_topics
-            stats["topic_transition_count"] += 1
-            if overlap and new_topics:
-                stats["topic_branch_count"] += 1
-                if nico_topics & new_topics:
-                    stats["nico_branch_count"] += 1
-                source = sorted(overlap)[0]
-                for destination in sorted(new_topics):
-                    stats["topic_branches"].append((source, destination))
-            elif not overlap:
-                stats["topic_jump_count"] += 1
-        stats["previous_topics"] = current_topics
-
-    def print_conversation_stats(self):
-        """Print aggregate diagnostics at session end when debugging is enabled."""
-        if not (self.debug_llm or self.debug):
-            return
-        stats = self.companion_diagnostics
-        total = stats["companion_turns"]
-        direct = stats["direct_responses"]
-        rate = (direct / total * 100.0) if total else 0.0
-        repeated_topics = {
-            topic: len(turns) for topic, turns in stats["topic_turns"].items() if len(turns) >= 2
-        }
-        maintained_turns = set()
-        for topic in repeated_topics:
-            maintained_turns.update(stats["topic_turns"][topic])
-        observed = stats["observed_turns"]
-        topic_rate = (len(maintained_turns) / observed * 100.0) if observed else 0.0
-        transitions = stats["topic_transition_count"]
-        branch_count = stats["topic_branch_count"]
-        branch_rate = (branch_count / transitions * 100.0) if transitions else 0.0
-        print("[CONVERSATION_STATS]")
-        print(f"CompanionTurns={total}")
-        print(f"DirectResponseCount={direct}")
-        print(f"ChainRate={rate:.1f}%")
-        print(f"TopicMaintenanceRate={topic_rate:.1f}%")
-        print(f"TopicBranchRate={branch_rate:.1f}%")
-        print(f"TopicBranchCount={branch_count}")
-        print(f"ContinueResetCount={stats['continue_reset_count']}")
-        print(f"ContinueExpireCount={stats['continue_expire_count']}")
-        print(f"ContinueWindow={self.MAX_CONVERSATION_CONTINUE_TURNS}")
-        print(
-            "ConversationResets="
-            + str(stats["continue_reset_count"] + stats["continue_expire_count"])
-        )
-        for topic, count in sorted(repeated_topics.items(), key=lambda item: (-item[1], item[0])):
-            print(f"Topic={topic} TurnsReferenced={count}")
-        for pair, count in sorted(stats["response_targets"].items()):
-            print(f"ResponseTarget={pair} Count={count}")
-        for character in self.companion_names():
-            for topic, count in sorted(
-                stats["character_topic_counts"].get(character, {}).items(),
-                key=lambda item: (-item[1], item[0]),
-            ):
-                print(f"CharacterTopic={character} Topic={topic} Count={count}")
-
-        print("[TOPIC_BRANCH]")
-        for source, destination in stats["topic_branches"][:20]:
-            print(f"{source} -> {destination}")
-
-        print("[NICO_DIAGNOSTICS]")
-        print(f"BranchCount={stats['nico_branch_count']}")
-        print(f"UniqueTopics={len(stats['nico_topics'])}")
-        for topic in sorted(stats["nico_topics"]):
-            print(topic)
-
-        print("[FOCUS_STATS]")
-        for character in self.companion_names():
-            counts = stats["focus_counts"].get(character, {})
-            total_focus = sum(counts.values())
-            if not total_focus:
-                continue
-            print(f"Character={character}")
-            for focus, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
-                print(f"{focus}={count / total_focus * 100.0:.1f}% Count={count}")
-
-        print("[TOPIC_ORIGIN]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            print(f"Topic={topic} Origin={record['origin']}")
-
-        print("[TOPIC_SURVIVAL]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            lifetime = record["last_referenced"] - record["created_turn"]
-            print(
-                f"Topic={topic} CreatedTurn={record['created_turn']} "
-                f"LastReferenced={record['last_referenced']} Lifetime={lifetime}"
-            )
-
-        print("[CHARACTER_INFLUENCE]")
-        for character in self.companion_names():
-            created = sum(1 for record in stats["topics"].values() if record["origin"] == character)
-            survived = sum(
-                1
-                for record in stats["topics"].values()
-                if len(record["turns"]) >= 2
-                for turn, speakers in record["speakers_by_turn"].items()
-                if turn > record["created_turn"] and character in speakers
-            )
-            print(f"Character={character} TopicsCreated={created} TopicsSurvived={survived}")
-
-    def companion_speaker(self, line):
-        """Return the companion name at the start of a rendered dialogue line."""
-        text = str(line).strip()
-        return next((name for name in self.companion_names() if text.startswith(name)), "")
-
-    def companion_focus(self, speaker, line=None):
-        """Classify a line for diagnostics only; never influence generation."""
-        if line is None:  # Compatibility for callers using the v2.15.19 signature.
-            line = speaker
-            speaker = self.companion_speaker(line)
-        if speaker == "ニコ" and any(
-            word in line
-            for word in (
-                "連想", "思い出", "そういえば", "聞いたこと", "みたい", "だったり",
-                "巨大イカ", "宝物", "空飛ぶ魚", "怪物", "伝説", "昔話",
-            )
-        ):
-            return "妙な連想"
-        if speaker == "ピピ":
-            npc_terms = []
-            for npc in self.npcs.values():
-                npc_terms.append(str(npc.get("name", "")))
-                npc_terms.extend(str(alias) for alias in npc.get("aliases", []) or [])
-            if "NPC" in line or any(term and term in line for term in npc_terms):
-                return "NPC"
-            if any(word in line for word in ("体調", "疲れ", "休", "怪我", "痛", "顔色")):
-                return "体調"
-            if any(word in line for word in ("不安", "怖", "心配", "大丈夫")):
-                return "不安"
-            if any(word in line for word in ("仲間", "みんな", "無理", "困", "様子")):
-                return "仲間の様子"
-        if speaker == "リュート":
-            if any(word in line for word in ("役割", "分担", "誰が", "担当")):
-                return "役割分担"
-            if any(word in line for word in ("時間", "先に", "後で", "順番")):
-                return "時間配分"
-            if any(word in line for word in ("装備", "道具", "持って", "荷物")):
-                return "装備"
-            if any(word in line for word in ("段取り", "準備", "移動", "ルート", "確認", "確保", "点検")):
-                return "段取り"
-        categories = [
-            ("段取り", ("段取り", "準備", "装備", "順番", "役割", "時間", "持って")),
-            ("仲間の様子", ("体調", "疲れ", "無理", "大丈夫", "心配", "様子", "休")),
-            ("行動", ("やる", "行こう", "試す", "開け", "押す", "壊す", "登る")),
-            ("観察", ("違和感", "音", "匂い", "形", "見える", "気になる")),
-            ("面白さ", ("面白", "すごい", "騒ぎ", "俺なら", "実は")),
-        ]
-        return next((label for label, words in categories if any(word in line for word in words)), "その他")
-
-    def companion_topics(self, lines):
-        """Extract repeated surface terms as a deliberately lightweight topic signal."""
-        ignored = {
-            "全員", "仲間", "今回", "自分", "様子", "気持ち", "本当", "一緒", "問題", "話して",
-        }
-        topics = set()
-        for line in lines:
-            dialogue = re.sub(r"^[^:：「『]+[:：]?[「『]?", "", str(line))
-            compounds = re.findall(r"[一-龠ァ-ヶー]{2,}", dialogue)
-            phrases = re.findall(
-                r"([一-龠ァ-ヶー][一-龠ァ-ヶーぁ-ん]{1,12}?)(?=の(?:話|影|こと))",
-                dialogue,
-            )
-            phrases = [
-                term for term in phrases
-                if not any(separator in term for separator in ("と", "や", "または", "そして"))
-            ]
-            for term in compounds + phrases:
-                term = re.sub(r"^(?:それなら|それ|その|じゃあ|でも|確かに|たしかに)", "", term)
-                if term not in ignored and not any(name in term for name in self.companion_names()):
-                    if len(term) >= 2:
-                        topics.add(term)
-        return topics
-
-    def companion_character_topics(self, line):
-        """Return normalized diagnostic topics without influencing generation."""
-        normalized = {
-            "安全": ("安全", "危険", "退路"),
-            "確認": ("確認", "点検", "チェック"),
-            "ルート": ("ルート", "経路", "道順", "移動"),
-            "装備": ("装備", "道具", "荷物", "持って"),
-            "段取り": ("段取り", "準備", "役割", "分担", "順番", "時間配分"),
-        }
-        topics = {
-            topic for topic, words in normalized.items() if any(word in line for word in words)
-        }
-        return topics or self.companion_topics([line])
-
-    def observe_companion_turn(self, lines, it):
-        """Collect and print non-invasive conversation-chain diagnostics."""
-        companion_lines = [str(line).strip() for line in lines if self.companion_speaker(line)]
-        if not companion_lines:
-            return
-        stats = self.companion_diagnostics
-        stats["observed_turns"] += 1
-        turn_number = stats["observed_turns"]
-        prior_speakers = [self.companion_speaker(line) for line in self.recent_companion_lines()]
-        seen_speakers = [name for name in prior_speakers if name]
-        continuation = self.continues_companion_conversation(it.get("raw", ""))
-        reaction_cues = ("それ", "その", "そう", "たしかに", "確かに", "でも", "じゃあ", "なら", "うん", "いや")
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            mentioned = [name for name in seen_speakers if name != speaker and name in line]
-            responded_to = mentioned[-1] if mentioned else ""
-            if not responded_to and continuation and any(cue in line for cue in reaction_cues):
-                responded_to = next((name for name in reversed(seen_speakers) if name != speaker), "")
-            stats["companion_turns"] += 1
-            focus = self.companion_focus(speaker, line)
-            character_focus = stats["focus_counts"].setdefault(speaker, {})
-            character_focus[focus] = character_focus.get(focus, 0) + 1
-            character_topics = stats["character_topic_counts"].setdefault(speaker, {})
-            for topic in sorted(self.companion_character_topics(line)):
-                character_topics[topic] = character_topics.get(topic, 0) + 1
-                if self.debug_llm or self.debug:
-                    print("[COMPANION_TOPIC]")
-                    print("Character=" + speaker)
-                    print("Topic=" + topic)
-            if responded_to:
-                stats["direct_responses"] += 1
-                key = f"{speaker}->{responded_to}"
-                stats["response_targets"][key] = stats["response_targets"].get(key, 0) + 1
-            if self.debug_llm or self.debug:
-                print("[COMPANION_DIAGNOSTICS]")
-                print("Character=" + speaker)
-                print("Trigger=" + ("会話継続" if continuation else "場面反応"))
-                print("RespondedTo=" + (responded_to or "なし"))
-                print("Focus=" + focus)
-            seen_speakers.append(speaker)
-
-        current_topics = set()
-        topics_by_speaker = {}
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            for topic in self.companion_topics([line]):
-                current_topics.add(topic)
-                topics_by_speaker.setdefault(speaker, set()).add(topic)
-                stats["topic_turns"].setdefault(topic, set()).add(turn_number)
-                record = stats["topics"].setdefault(
-                    topic,
-                    {
-                        "origin": speaker,
-                        "created_turn": turn_number,
-                        "last_referenced": turn_number,
-                        "turns": set(),
-                        "speakers_by_turn": {},
-                    },
-                )
-                record["last_referenced"] = turn_number
-                record["turns"].add(turn_number)
-                record["speakers_by_turn"].setdefault(turn_number, set()).add(speaker)
-
-        nico_topics = topics_by_speaker.get("ニコ", set())
-        stats["nico_topics"].update(nico_topics)
-        previous_topics = stats["previous_topics"]
-        if previous_topics and current_topics:
-            overlap = previous_topics & current_topics
-            new_topics = current_topics - previous_topics
-            stats["topic_transition_count"] += 1
-            if overlap and new_topics:
-                stats["topic_branch_count"] += 1
-                if nico_topics & new_topics:
-                    stats["nico_branch_count"] += 1
-                source = sorted(overlap)[0]
-                for destination in sorted(new_topics):
-                    stats["topic_branches"].append((source, destination))
-            elif not overlap:
-                stats["topic_jump_count"] += 1
-        stats["previous_topics"] = current_topics
-
-    def print_conversation_stats(self):
-        """Print aggregate diagnostics at session end when debugging is enabled."""
-        if not (self.debug_llm or self.debug):
-            return
-        stats = self.companion_diagnostics
-        total = stats["companion_turns"]
-        direct = stats["direct_responses"]
-        rate = (direct / total * 100.0) if total else 0.0
-        repeated_topics = {
-            topic: len(turns) for topic, turns in stats["topic_turns"].items() if len(turns) >= 2
-        }
-        maintained_turns = set()
-        for topic in repeated_topics:
-            maintained_turns.update(stats["topic_turns"][topic])
-        observed = stats["observed_turns"]
-        topic_rate = (len(maintained_turns) / observed * 100.0) if observed else 0.0
-        transitions = stats["topic_transition_count"]
-        branch_count = stats["topic_branch_count"]
-        branch_rate = (branch_count / transitions * 100.0) if transitions else 0.0
-        print("[CONVERSATION_STATS]")
-        print(f"CompanionTurns={total}")
-        print(f"DirectResponseCount={direct}")
-        print(f"ChainRate={rate:.1f}%")
-        print(f"TopicMaintenanceRate={topic_rate:.1f}%")
-        print(f"TopicBranchRate={branch_rate:.1f}%")
-        print(f"TopicBranchCount={branch_count}")
-        print(f"ContinueResetCount={stats['continue_reset_count']}")
-        print(f"ContinueExpireCount={stats['continue_expire_count']}")
-        for topic, count in sorted(repeated_topics.items(), key=lambda item: (-item[1], item[0])):
-            print(f"Topic={topic} TurnsReferenced={count}")
-        for pair, count in sorted(stats["response_targets"].items()):
-            print(f"ResponseTarget={pair} Count={count}")
-        for character in self.companion_names():
-            for topic, count in sorted(
-                stats["character_topic_counts"].get(character, {}).items(),
-                key=lambda item: (-item[1], item[0]),
-            ):
-                print(f"CharacterTopic={character} Topic={topic} Count={count}")
-
-        print("[TOPIC_BRANCH]")
-        for source, destination in stats["topic_branches"][:20]:
-            print(f"{source} -> {destination}")
-
-        print("[NICO_DIAGNOSTICS]")
-        print(f"BranchCount={stats['nico_branch_count']}")
-        print(f"UniqueTopics={len(stats['nico_topics'])}")
-        for topic in sorted(stats["nico_topics"]):
-            print(topic)
-
-        print("[FOCUS_STATS]")
-        for character in self.companion_names():
-            counts = stats["focus_counts"].get(character, {})
-            total_focus = sum(counts.values())
-            if not total_focus:
-                continue
-            print(f"Character={character}")
-            for focus, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
-                print(f"{focus}={count / total_focus * 100.0:.1f}% Count={count}")
-
-        print("[TOPIC_ORIGIN]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            print(f"Topic={topic} Origin={record['origin']}")
-
-        print("[TOPIC_SURVIVAL]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            lifetime = record["last_referenced"] - record["created_turn"]
-            print(
-                f"Topic={topic} CreatedTurn={record['created_turn']} "
-                f"LastReferenced={record['last_referenced']} Lifetime={lifetime}"
-            )
-
-        print("[CHARACTER_INFLUENCE]")
-        for character in self.companion_names():
-            created = sum(1 for record in stats["topics"].values() if record["origin"] == character)
-            survived = sum(
-                1
-                for record in stats["topics"].values()
-                if len(record["turns"]) >= 2
-                for turn, speakers in record["speakers_by_turn"].items()
-                if turn > record["created_turn"] and character in speakers
-            )
-            print(f"Character={character} TopicsCreated={created} TopicsSurvived={survived}")
-
-    def companion_speaker(self, line):
-        """Return the companion name at the start of a rendered dialogue line."""
-        text = str(line).strip()
-        return next((name for name in self.companion_names() if text.startswith(name)), "")
-
-    def companion_focus(self, speaker, line=None):
-        """Classify a line for diagnostics only; never influence generation."""
-        if line is None:  # Compatibility for callers using the v2.15.19 signature.
-            line = speaker
-            speaker = self.companion_speaker(line)
-        if speaker == "ニコ" and any(
-            word in line
-            for word in (
-                "連想", "思い出", "そういえば", "聞いたこと", "みたい", "だったり",
-                "巨大イカ", "宝物", "空飛ぶ魚", "怪物", "伝説", "昔話",
-            )
-        ):
-            return "妙な連想"
-        if speaker == "ピピ":
-            npc_terms = []
-            for npc in self.npcs.values():
-                npc_terms.append(str(npc.get("name", "")))
-                npc_terms.extend(str(alias) for alias in npc.get("aliases", []) or [])
-            if "NPC" in line or any(term and term in line for term in npc_terms):
-                return "NPC"
-            if any(word in line for word in ("体調", "疲れ", "休", "怪我", "痛", "顔色")):
-                return "体調"
-            if any(word in line for word in ("不安", "怖", "心配", "大丈夫")):
-                return "不安"
-            if any(word in line for word in ("仲間", "みんな", "無理", "困", "様子")):
-                return "仲間の様子"
-        if speaker == "リュート":
-            if any(word in line for word in ("役割", "分担", "誰が", "担当")):
-                return "役割分担"
-            if any(word in line for word in ("時間", "先に", "後で", "順番")):
-                return "時間配分"
-            if any(word in line for word in ("装備", "道具", "持って", "荷物")):
-                return "装備"
-            if any(word in line for word in ("段取り", "準備", "移動", "ルート", "確認", "確保", "点検")):
-                return "段取り"
-        categories = [
-            ("段取り", ("段取り", "準備", "装備", "順番", "役割", "時間", "持って")),
-            ("仲間の様子", ("体調", "疲れ", "無理", "大丈夫", "心配", "様子", "休")),
-            ("行動", ("やる", "行こう", "試す", "開け", "押す", "壊す", "登る")),
-            ("観察", ("違和感", "音", "匂い", "形", "見える", "気になる")),
-            ("面白さ", ("面白", "すごい", "騒ぎ", "俺なら", "実は")),
-        ]
-        return next((label for label, words in categories if any(word in line for word in words)), "その他")
-
-    def companion_topics(self, lines):
-        """Extract repeated surface terms as a deliberately lightweight topic signal."""
-        ignored = {
-            "全員", "仲間", "今回", "自分", "様子", "気持ち", "本当", "一緒", "問題", "話して",
-        }
-        topics = set()
-        for line in lines:
-            dialogue = re.sub(r"^[^:：「『]+[:：]?[「『]?", "", str(line))
-            compounds = re.findall(r"[一-龠ァ-ヶー]{2,}", dialogue)
-            phrases = re.findall(
-                r"([一-龠ァ-ヶー][一-龠ァ-ヶーぁ-ん]{1,12}?)(?=の(?:話|影|こと))",
-                dialogue,
-            )
-            phrases = [
-                term for term in phrases
-                if not any(separator in term for separator in ("と", "や", "または", "そして"))
-            ]
-            for term in compounds + phrases:
-                term = re.sub(r"^(?:それなら|それ|その|じゃあ|でも|確かに|たしかに)", "", term)
-                if term not in ignored and not any(name in term for name in self.companion_names()):
-                    if len(term) >= 2:
-                        topics.add(term)
-        return topics
-
-    def observe_companion_turn(self, lines, it):
-        """Collect and print non-invasive conversation-chain diagnostics."""
-        companion_lines = [str(line).strip() for line in lines if self.companion_speaker(line)]
-        if not companion_lines:
-            return
-        stats = self.companion_diagnostics
-        stats["observed_turns"] += 1
-        turn_number = stats["observed_turns"]
-        prior_speakers = [self.companion_speaker(line) for line in self.recent_companion_lines()]
-        seen_speakers = [name for name in prior_speakers if name]
-        continuation = self.continues_companion_conversation(it.get("raw", ""))
-        reaction_cues = ("それ", "その", "そう", "たしかに", "確かに", "でも", "じゃあ", "なら", "うん", "いや")
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            mentioned = [name for name in seen_speakers if name != speaker and name in line]
-            responded_to = mentioned[-1] if mentioned else ""
-            if not responded_to and continuation and any(cue in line for cue in reaction_cues):
-                responded_to = next((name for name in reversed(seen_speakers) if name != speaker), "")
-            stats["companion_turns"] += 1
-            focus = self.companion_focus(speaker, line)
-            character_focus = stats["focus_counts"].setdefault(speaker, {})
-            character_focus[focus] = character_focus.get(focus, 0) + 1
-            if responded_to:
-                stats["direct_responses"] += 1
-                key = f"{speaker}->{responded_to}"
-                stats["response_targets"][key] = stats["response_targets"].get(key, 0) + 1
-            if self.debug_llm or self.debug:
-                print("[COMPANION_DIAGNOSTICS]")
-                print("Character=" + speaker)
-                print("Trigger=" + ("会話継続" if continuation else "場面反応"))
-                print("RespondedTo=" + (responded_to or "なし"))
-                print("Focus=" + focus)
-            seen_speakers.append(speaker)
-
-        current_topics = set()
-        topics_by_speaker = {}
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            for topic in self.companion_topics([line]):
-                current_topics.add(topic)
-                topics_by_speaker.setdefault(speaker, set()).add(topic)
-                stats["topic_turns"].setdefault(topic, set()).add(turn_number)
-                record = stats["topics"].setdefault(
-                    topic,
-                    {
-                        "origin": speaker,
-                        "created_turn": turn_number,
-                        "last_referenced": turn_number,
-                        "turns": set(),
-                        "speakers_by_turn": {},
-                    },
-                )
-                record["last_referenced"] = turn_number
-                record["turns"].add(turn_number)
-                record["speakers_by_turn"].setdefault(turn_number, set()).add(speaker)
-
-        nico_topics = topics_by_speaker.get("ニコ", set())
-        stats["nico_topics"].update(nico_topics)
-        previous_topics = stats["previous_topics"]
-        if previous_topics and current_topics:
-            overlap = previous_topics & current_topics
-            new_topics = current_topics - previous_topics
-            stats["topic_transition_count"] += 1
-            if overlap and new_topics:
-                stats["topic_branch_count"] += 1
-                if nico_topics & new_topics:
-                    stats["nico_branch_count"] += 1
-                source = sorted(overlap)[0]
-                for destination in sorted(new_topics):
-                    stats["topic_branches"].append((source, destination))
-            elif not overlap:
-                stats["topic_jump_count"] += 1
-        stats["previous_topics"] = current_topics
-
-    def print_conversation_stats(self):
-        """Print aggregate diagnostics at session end when debugging is enabled."""
-        if not (self.debug_llm or self.debug):
-            return
-        stats = self.companion_diagnostics
-        total = stats["companion_turns"]
-        direct = stats["direct_responses"]
-        rate = (direct / total * 100.0) if total else 0.0
-        repeated_topics = {
-            topic: len(turns) for topic, turns in stats["topic_turns"].items() if len(turns) >= 2
-        }
-        maintained_turns = set()
-        for topic in repeated_topics:
-            maintained_turns.update(stats["topic_turns"][topic])
-        observed = stats["observed_turns"]
-        topic_rate = (len(maintained_turns) / observed * 100.0) if observed else 0.0
-        transitions = stats["topic_transition_count"]
-        branch_count = stats["topic_branch_count"]
-        branch_rate = (branch_count / transitions * 100.0) if transitions else 0.0
-        print("[CONVERSATION_STATS]")
-        print(f"CompanionTurns={total}")
-        print(f"DirectResponseCount={direct}")
-        print(f"ChainRate={rate:.1f}%")
-        print(f"TopicMaintenanceRate={topic_rate:.1f}%")
-        print(f"TopicBranchRate={branch_rate:.1f}%")
-        print(f"TopicBranchCount={branch_count}")
-        print(f"ContinueResetCount={stats['continue_reset_count']}")
-        print(f"ContinueExpireCount={stats['continue_expire_count']}")
-        for topic, count in sorted(repeated_topics.items(), key=lambda item: (-item[1], item[0])):
-            print(f"Topic={topic} TurnsReferenced={count}")
-        for pair, count in sorted(stats["response_targets"].items()):
-            print(f"ResponseTarget={pair} Count={count}")
-
-        print("[TOPIC_BRANCH]")
-        for source, destination in stats["topic_branches"][:20]:
-            print(f"{source} -> {destination}")
-
-        print("[NICO_DIAGNOSTICS]")
-        print(f"BranchCount={stats['nico_branch_count']}")
-        print(f"UniqueTopics={len(stats['nico_topics'])}")
-        for topic in sorted(stats["nico_topics"]):
-            print(topic)
-
-        print("[FOCUS_STATS]")
-        for character in self.companion_names():
-            counts = stats["focus_counts"].get(character, {})
-            total_focus = sum(counts.values())
-            if not total_focus:
-                continue
-            print(f"Character={character}")
-            for focus, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
-                print(f"{focus}={count / total_focus * 100.0:.1f}% Count={count}")
-
-        print("[TOPIC_ORIGIN]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            print(f"Topic={topic} Origin={record['origin']}")
-
-        print("[TOPIC_SURVIVAL]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            lifetime = record["last_referenced"] - record["created_turn"]
-            print(
-                f"Topic={topic} CreatedTurn={record['created_turn']} "
-                f"LastReferenced={record['last_referenced']} Lifetime={lifetime}"
-            )
-
-        print("[CHARACTER_INFLUENCE]")
-        for character in self.companion_names():
-            created = sum(1 for record in stats["topics"].values() if record["origin"] == character)
-            survived = sum(
-                1
-                for record in stats["topics"].values()
-                if len(record["turns"]) >= 2
-                for turn, speakers in record["speakers_by_turn"].items()
-                if turn > record["created_turn"] and character in speakers
-            )
-            print(f"Character={character} TopicsCreated={created} TopicsSurvived={survived}")
-
-    def companion_speaker(self, line):
-        """Return the companion name at the start of a rendered dialogue line."""
-        text = str(line).strip()
-        return next((name for name in self.companion_names() if text.startswith(name)), "")
-
-    def companion_focus(self, speaker, line=None):
-        """Classify a line for diagnostics only; never influence generation."""
-        if line is None:  # Compatibility for callers using the v2.15.19 signature.
-            line = speaker
-            speaker = self.companion_speaker(line)
-        if speaker == "ニコ" and any(
-            word in line
-            for word in (
-                "連想", "思い出", "そういえば", "聞いたこと", "みたい", "だったり",
-                "巨大イカ", "宝物", "空飛ぶ魚", "怪物", "伝説", "昔話",
-            )
-        ):
-            return "妙な連想"
-        if speaker == "ピピ":
-            npc_terms = []
-            for npc in self.npcs.values():
-                npc_terms.append(str(npc.get("name", "")))
-                npc_terms.extend(str(alias) for alias in npc.get("aliases", []) or [])
-            if "NPC" in line or any(term and term in line for term in npc_terms):
-                return "NPC"
-            if any(word in line for word in ("体調", "疲れ", "休", "怪我", "痛", "顔色")):
-                return "体調"
-            if any(word in line for word in ("不安", "怖", "心配", "大丈夫")):
-                return "不安"
-            if any(word in line for word in ("仲間", "みんな", "無理", "困", "様子")):
-                return "仲間の様子"
-        if speaker == "リュート":
-            if any(word in line for word in ("役割", "分担", "誰が", "担当")):
-                return "役割分担"
-            if any(word in line for word in ("時間", "先に", "後で", "順番")):
-                return "時間配分"
-            if any(word in line for word in ("装備", "道具", "持って", "荷物")):
-                return "装備"
-            if any(word in line for word in ("段取り", "準備", "移動", "ルート", "確認", "確保", "点検")):
-                return "段取り"
-        categories = [
-            ("段取り", ("段取り", "準備", "装備", "順番", "役割", "時間", "持って")),
-            ("仲間の様子", ("体調", "疲れ", "無理", "大丈夫", "心配", "様子", "休")),
-            ("行動", ("やる", "行こう", "試す", "開け", "押す", "壊す", "登る")),
-            ("観察", ("違和感", "音", "匂い", "形", "見える", "気になる")),
-            ("面白さ", ("面白", "すごい", "騒ぎ", "俺なら", "実は")),
-        ]
-        return next((label for label, words in categories if any(word in line for word in words)), "その他")
-
-    def companion_topics(self, lines):
-        """Extract repeated surface terms as a deliberately lightweight topic signal."""
-        ignored = {
-            "全員", "仲間", "今回", "自分", "様子", "気持ち", "本当", "一緒", "問題", "話して",
-        }
-        topics = set()
-        for line in lines:
-            dialogue = re.sub(r"^[^:：「『]+[:：]?[「『]?", "", str(line))
-            compounds = re.findall(r"[一-龠ァ-ヶー]{2,}", dialogue)
-            phrases = re.findall(
-                r"([一-龠ァ-ヶー][一-龠ァ-ヶーぁ-ん]{1,12}?)(?=の(?:話|影|こと))",
-                dialogue,
-            )
-            phrases = [
-                term for term in phrases
-                if not any(separator in term for separator in ("と", "や", "または", "そして"))
-            ]
-            for term in compounds + phrases:
-                term = re.sub(r"^(?:それなら|それ|その|じゃあ|でも|確かに|たしかに)", "", term)
-                if term not in ignored and not any(name in term for name in self.companion_names()):
-                    if len(term) >= 2:
-                        topics.add(term)
-        return topics
-
-    def observe_companion_turn(self, lines, it):
-        """Collect and print non-invasive conversation-chain diagnostics."""
-        companion_lines = [str(line).strip() for line in lines if self.companion_speaker(line)]
-        if not companion_lines:
-            return
-        stats = self.companion_diagnostics
-        stats["observed_turns"] += 1
-        turn_number = stats["observed_turns"]
-        prior_speakers = [self.companion_speaker(line) for line in self.recent_companion_lines()]
-        seen_speakers = [name for name in prior_speakers if name]
-        continuation = self.continues_companion_conversation(it.get("raw", ""))
-        reaction_cues = ("それ", "その", "そう", "たしかに", "確かに", "でも", "じゃあ", "なら", "うん", "いや")
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            mentioned = [name for name in seen_speakers if name != speaker and name in line]
-            responded_to = mentioned[-1] if mentioned else ""
-            if not responded_to and continuation and any(cue in line for cue in reaction_cues):
-                responded_to = next((name for name in reversed(seen_speakers) if name != speaker), "")
-            stats["companion_turns"] += 1
-            focus = self.companion_focus(speaker, line)
-            character_focus = stats["focus_counts"].setdefault(speaker, {})
-            character_focus[focus] = character_focus.get(focus, 0) + 1
-            if responded_to:
-                stats["direct_responses"] += 1
-                key = f"{speaker}->{responded_to}"
-                stats["response_targets"][key] = stats["response_targets"].get(key, 0) + 1
-            if self.debug_llm or self.debug:
-                print("[COMPANION_DIAGNOSTICS]")
-                print("Character=" + speaker)
-                print("Trigger=" + ("会話継続" if continuation else "場面反応"))
-                print("RespondedTo=" + (responded_to or "なし"))
-                print("Focus=" + focus)
-            seen_speakers.append(speaker)
-
-        current_topics = set()
-        topics_by_speaker = {}
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            for topic in self.companion_topics([line]):
-                current_topics.add(topic)
-                topics_by_speaker.setdefault(speaker, set()).add(topic)
-                stats["topic_turns"].setdefault(topic, set()).add(turn_number)
-                record = stats["topics"].setdefault(
-                    topic,
-                    {
-                        "origin": speaker,
-                        "created_turn": turn_number,
-                        "last_referenced": turn_number,
-                        "turns": set(),
-                        "speakers_by_turn": {},
-                    },
-                )
-                record["last_referenced"] = turn_number
-                record["turns"].add(turn_number)
-                record["speakers_by_turn"].setdefault(turn_number, set()).add(speaker)
-
-        nico_topics = topics_by_speaker.get("ニコ", set())
-        stats["nico_topics"].update(nico_topics)
-        previous_topics = stats["previous_topics"]
-        if previous_topics and current_topics:
-            overlap = previous_topics & current_topics
-            new_topics = current_topics - previous_topics
-            stats["topic_transition_count"] += 1
-            if overlap and new_topics:
-                stats["topic_branch_count"] += 1
-                if nico_topics & new_topics:
-                    stats["nico_branch_count"] += 1
-                source = sorted(overlap)[0]
-                for destination in sorted(new_topics):
-                    stats["topic_branches"].append((source, destination))
-            elif not overlap:
-                stats["topic_jump_count"] += 1
-        stats["previous_topics"] = current_topics
-
-    def print_conversation_stats(self):
-        """Print aggregate diagnostics at session end when debugging is enabled."""
-        if not (self.debug_llm or self.debug):
-            return
-        stats = self.companion_diagnostics
-        total = stats["companion_turns"]
-        direct = stats["direct_responses"]
-        rate = (direct / total * 100.0) if total else 0.0
-        repeated_topics = {
-            topic: len(turns) for topic, turns in stats["topic_turns"].items() if len(turns) >= 2
-        }
-        maintained_turns = set()
-        for topic in repeated_topics:
-            maintained_turns.update(stats["topic_turns"][topic])
-        observed = stats["observed_turns"]
-        topic_rate = (len(maintained_turns) / observed * 100.0) if observed else 0.0
-        transitions = stats["topic_transition_count"]
-        branch_count = stats["topic_branch_count"]
-        branch_rate = (branch_count / transitions * 100.0) if transitions else 0.0
-        print("[CONVERSATION_STATS]")
-        print(f"CompanionTurns={total}")
-        print(f"DirectResponseCount={direct}")
-        print(f"ChainRate={rate:.1f}%")
-        print(f"TopicMaintenanceRate={topic_rate:.1f}%")
-        print(f"TopicBranchRate={branch_rate:.1f}%")
-        print(f"TopicBranchCount={branch_count}")
-        for topic, count in sorted(repeated_topics.items(), key=lambda item: (-item[1], item[0])):
-            print(f"Topic={topic} TurnsReferenced={count}")
-        for pair, count in sorted(stats["response_targets"].items()):
-            print(f"ResponseTarget={pair} Count={count}")
-
-        print("[TOPIC_BRANCH]")
-        for source, destination in stats["topic_branches"][:20]:
-            print(f"{source} -> {destination}")
-
-        print("[NICO_DIAGNOSTICS]")
-        print(f"BranchCount={stats['nico_branch_count']}")
-        print(f"UniqueTopics={len(stats['nico_topics'])}")
-        for topic in sorted(stats["nico_topics"]):
-            print(topic)
-
-        print("[FOCUS_STATS]")
-        for character in self.companion_names():
-            counts = stats["focus_counts"].get(character, {})
-            total_focus = sum(counts.values())
-            if not total_focus:
-                continue
-            print(f"Character={character}")
-            for focus, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
-                print(f"{focus}={count / total_focus * 100.0:.1f}% Count={count}")
-
-        print("[TOPIC_ORIGIN]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            print(f"Topic={topic} Origin={record['origin']}")
-
-        print("[TOPIC_SURVIVAL]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            lifetime = record["last_referenced"] - record["created_turn"]
-            print(
-                f"Topic={topic} CreatedTurn={record['created_turn']} "
-                f"LastReferenced={record['last_referenced']} Lifetime={lifetime}"
-            )
-
-        print("[CHARACTER_INFLUENCE]")
-        for character in self.companion_names():
-            created = sum(1 for record in stats["topics"].values() if record["origin"] == character)
-            survived = sum(
-                1
-                for record in stats["topics"].values()
-                if len(record["turns"]) >= 2
-                for turn, speakers in record["speakers_by_turn"].items()
-                if turn > record["created_turn"] and character in speakers
-            )
-            print(f"Character={character} TopicsCreated={created} TopicsSurvived={survived}")
-
-    def companion_speaker(self, line):
-        """Return the companion name at the start of a rendered dialogue line."""
-        text = str(line).strip()
-        return next((name for name in self.companion_names() if text.startswith(name)), "")
-
-    def companion_focus(self, speaker, line=None):
-        """Classify a line for diagnostics only; never influence generation."""
-        if line is None:  # Compatibility for callers using the v2.15.19 signature.
-            line = speaker
-            speaker = self.companion_speaker(line)
-        if speaker == "ニコ" and any(
-            word in line
-            for word in (
-                "連想", "思い出", "そういえば", "聞いたこと", "みたい", "だったり",
-                "巨大イカ", "宝物", "空飛ぶ魚", "怪物", "伝説", "昔話",
-            )
-        ):
-            return "妙な連想"
-        if speaker == "ピピ":
-            npc_terms = []
-            for npc in self.npcs.values():
-                npc_terms.append(str(npc.get("name", "")))
-                npc_terms.extend(str(alias) for alias in npc.get("aliases", []) or [])
-            if "NPC" in line or any(term and term in line for term in npc_terms):
-                return "NPC"
-            if any(word in line for word in ("体調", "疲れ", "休", "怪我", "痛", "顔色")):
-                return "体調"
-            if any(word in line for word in ("不安", "怖", "心配", "大丈夫")):
-                return "不安"
-            if any(word in line for word in ("仲間", "みんな", "無理", "困", "様子")):
-                return "仲間の様子"
-        if speaker == "リュート":
-            if any(word in line for word in ("役割", "分担", "誰が", "担当")):
-                return "役割分担"
-            if any(word in line for word in ("時間", "先に", "後で", "順番")):
-                return "時間配分"
-            if any(word in line for word in ("装備", "道具", "持って", "荷物")):
-                return "装備"
-            if any(word in line for word in ("段取り", "準備", "移動", "ルート", "確認", "確保", "点検")):
-                return "段取り"
-        categories = [
-            ("段取り", ("段取り", "準備", "装備", "順番", "役割", "時間", "持って")),
-            ("仲間の様子", ("体調", "疲れ", "無理", "大丈夫", "心配", "様子", "休")),
-            ("行動", ("やる", "行こう", "試す", "開け", "押す", "壊す", "登る")),
-            ("観察", ("違和感", "音", "匂い", "形", "見える", "気になる")),
-            ("面白さ", ("面白", "すごい", "騒ぎ", "俺なら", "実は")),
-        ]
-        return next((label for label, words in categories if any(word in line for word in words)), "その他")
-
-    def companion_topics(self, lines):
-        """Extract repeated surface terms as a deliberately lightweight topic signal."""
-        ignored = {
-            "全員", "仲間", "今回", "自分", "様子", "気持ち", "本当", "一緒", "問題", "話して",
-        }
-        topics = set()
-        for line in lines:
-            dialogue = re.sub(r"^[^:：「『]+[:：]?[「『]?", "", str(line))
-            compounds = re.findall(r"[一-龠ァ-ヶー]{2,}", dialogue)
-            phrases = re.findall(
-                r"([一-龠ァ-ヶー][一-龠ァ-ヶーぁ-ん]{1,12}?)(?=の(?:話|影|こと))",
-                dialogue,
-            )
-            for term in compounds + phrases:
-                term = re.sub(r"^(?:それなら|それ|その|じゃあ|でも|確かに|たしかに)", "", term)
-                if term not in ignored and not any(name in term for name in self.companion_names()):
-                    if len(term) >= 2:
-                        topics.add(term)
-        return topics
-
-    def observe_companion_turn(self, lines, it):
-        """Collect and print non-invasive conversation-chain diagnostics."""
-        companion_lines = [str(line).strip() for line in lines if self.companion_speaker(line)]
-        if not companion_lines:
-            return
-        stats = self.companion_diagnostics
-        stats["observed_turns"] += 1
-        turn_number = stats["observed_turns"]
-        prior_speakers = [self.companion_speaker(line) for line in self.recent_companion_lines()]
-        seen_speakers = [name for name in prior_speakers if name]
-        continuation = self.continues_companion_conversation(it.get("raw", ""))
-        reaction_cues = ("それ", "その", "そう", "たしかに", "確かに", "でも", "じゃあ", "なら", "うん", "いや")
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            mentioned = [name for name in seen_speakers if name != speaker and name in line]
-            responded_to = mentioned[-1] if mentioned else ""
-            if not responded_to and continuation and any(cue in line for cue in reaction_cues):
-                responded_to = next((name for name in reversed(seen_speakers) if name != speaker), "")
-            stats["companion_turns"] += 1
-            focus = self.companion_focus(speaker, line)
-            character_focus = stats["focus_counts"].setdefault(speaker, {})
-            character_focus[focus] = character_focus.get(focus, 0) + 1
-            if responded_to:
-                stats["direct_responses"] += 1
-                key = f"{speaker}->{responded_to}"
-                stats["response_targets"][key] = stats["response_targets"].get(key, 0) + 1
-            if self.debug_llm or self.debug:
-                print("[COMPANION_DIAGNOSTICS]")
-                print("Character=" + speaker)
-                print("Trigger=" + ("会話継続" if continuation else "場面反応"))
-                print("RespondedTo=" + (responded_to or "なし"))
-                print("Focus=" + focus)
-            seen_speakers.append(speaker)
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            for topic in self.companion_topics([line]):
-                stats["topic_turns"].setdefault(topic, set()).add(turn_number)
-                record = stats["topics"].setdefault(
-                    topic,
-                    {
-                        "origin": speaker,
-                        "created_turn": turn_number,
-                        "last_referenced": turn_number,
-                        "turns": set(),
-                        "speakers_by_turn": {},
-                    },
-                )
-                record["last_referenced"] = turn_number
-                record["turns"].add(turn_number)
-                record["speakers_by_turn"].setdefault(turn_number, set()).add(speaker)
-
-    def print_conversation_stats(self):
-        """Print aggregate diagnostics at session end when debugging is enabled."""
-        if not (self.debug_llm or self.debug):
-            return
-        stats = self.companion_diagnostics
-        total = stats["companion_turns"]
-        direct = stats["direct_responses"]
-        rate = (direct / total * 100.0) if total else 0.0
-        repeated_topics = {
-            topic: len(turns) for topic, turns in stats["topic_turns"].items() if len(turns) >= 2
-        }
-        maintained_turns = set()
-        for topic in repeated_topics:
-            maintained_turns.update(stats["topic_turns"][topic])
-        observed = stats["observed_turns"]
-        topic_rate = (len(maintained_turns) / observed * 100.0) if observed else 0.0
-        print("[CONVERSATION_STATS]")
-        print(f"CompanionTurns={total}")
-        print(f"DirectResponseCount={direct}")
-        print(f"ChainRate={rate:.1f}%")
-        print(f"TopicMaintenanceRate={topic_rate:.1f}%")
-        for topic, count in sorted(repeated_topics.items(), key=lambda item: (-item[1], item[0])):
-            print(f"Topic={topic} TurnsReferenced={count}")
-        for pair, count in sorted(stats["response_targets"].items()):
-            print(f"ResponseTarget={pair} Count={count}")
-
-        print("[FOCUS_STATS]")
-        for character in self.companion_names():
-            counts = stats["focus_counts"].get(character, {})
-            total_focus = sum(counts.values())
-            if not total_focus:
-                continue
-            print(f"Character={character}")
-            for focus, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
-                print(f"{focus}={count / total_focus * 100.0:.1f}% Count={count}")
-
-        print("[TOPIC_ORIGIN]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            print(f"Topic={topic} Origin={record['origin']}")
-
-        print("[TOPIC_SURVIVAL]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            lifetime = record["last_referenced"] - record["created_turn"]
-            print(
-                f"Topic={topic} CreatedTurn={record['created_turn']} "
-                f"LastReferenced={record['last_referenced']} Lifetime={lifetime}"
-            )
-
-        print("[CHARACTER_INFLUENCE]")
-        for character in self.companion_names():
-            created = sum(1 for record in stats["topics"].values() if record["origin"] == character)
-            survived = sum(
-                1
-                for record in stats["topics"].values()
-                if len(record["turns"]) >= 2
-                for turn, speakers in record["speakers_by_turn"].items()
-                if turn > record["created_turn"] and character in speakers
-            )
-            print(f"Character={character} TopicsCreated={created} TopicsSurvived={survived}")
-
-    def companion_speaker(self, line):
-        """Return the companion name at the start of a rendered dialogue line."""
-        text = str(line).strip()
-        return next((name for name in self.companion_names() if text.startswith(name)), "")
-
-    def companion_focus(self, speaker, line=None):
-        """Classify a line for diagnostics only; never influence generation."""
-        if line is None:  # Compatibility for callers using the v2.15.19 signature.
-            line = speaker
-            speaker = self.companion_speaker(line)
-        if speaker == "ピピ":
-            npc_terms = []
-            for npc in self.npcs.values():
-                npc_terms.append(str(npc.get("name", "")))
-                npc_terms.extend(str(alias) for alias in npc.get("aliases", []) or [])
-            if "NPC" in line or any(term and term in line for term in npc_terms):
-                return "NPC"
-            if any(word in line for word in ("体調", "疲れ", "休", "怪我", "痛", "顔色")):
-                return "体調"
-            if any(word in line for word in ("不安", "怖", "心配", "大丈夫")):
-                return "不安"
-            if any(word in line for word in ("仲間", "みんな", "無理", "困", "様子")):
-                return "仲間の様子"
-        if speaker == "リュート":
-            if any(word in line for word in ("役割", "分担", "誰が", "担当")):
-                return "役割分担"
-            if any(word in line for word in ("時間", "先に", "後で", "順番")):
-                return "時間配分"
-            if any(word in line for word in ("装備", "道具", "持って", "荷物")):
-                return "装備"
-            if any(word in line for word in ("段取り", "準備", "移動", "ルート", "確認", "確保", "点検")):
-                return "段取り"
-        categories = [
-            ("段取り", ("段取り", "準備", "装備", "順番", "役割", "時間", "持って")),
-            ("仲間の様子", ("体調", "疲れ", "無理", "大丈夫", "心配", "様子", "休")),
-            ("行動", ("やる", "行こう", "試す", "開け", "押す", "壊す", "登る")),
-            ("観察", ("違和感", "音", "匂い", "形", "見える", "気になる")),
-            ("面白さ", ("面白", "すごい", "騒ぎ", "俺なら", "実は")),
-        ]
-        return next((label for label, words in categories if any(word in line for word in words)), "その他")
-
-    def companion_topics(self, lines):
-        """Extract repeated surface terms as a deliberately lightweight topic signal."""
-        ignored = {
-            "全員", "仲間", "今回", "自分", "様子", "気持ち", "本当", "一緒", "問題", "話して",
-        }
-        topics = set()
-        for line in lines:
-            dialogue = re.sub(r"^[^:：「『]+[:：]?[「『]?", "", str(line))
-            compounds = re.findall(r"[一-龠ァ-ヶー]{2,}", dialogue)
-            phrases = re.findall(
-                r"([一-龠ァ-ヶー][一-龠ァ-ヶーぁ-ん]{1,12}?)(?=の(?:話|影|こと))",
-                dialogue,
-            )
-            for term in compounds + phrases:
-                term = re.sub(r"^(?:それなら|それ|その|じゃあ|でも|確かに|たしかに)", "", term)
-                if term not in ignored and not any(name in term for name in self.companion_names()):
-                    if len(term) >= 2:
-                        topics.add(term)
-        return topics
-
-    def observe_companion_turn(self, lines, it):
-        """Collect and print non-invasive conversation-chain diagnostics."""
-        companion_lines = [str(line).strip() for line in lines if self.companion_speaker(line)]
-        if not companion_lines:
-            return
-        stats = self.companion_diagnostics
-        stats["observed_turns"] += 1
-        turn_number = stats["observed_turns"]
-        prior_speakers = [self.companion_speaker(line) for line in self.recent_companion_lines()]
-        seen_speakers = [name for name in prior_speakers if name]
-        continuation = self.continues_companion_conversation(it.get("raw", ""))
-        reaction_cues = ("それ", "その", "そう", "たしかに", "確かに", "でも", "じゃあ", "なら", "うん", "いや")
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            mentioned = [name for name in seen_speakers if name != speaker and name in line]
-            responded_to = mentioned[-1] if mentioned else ""
-            if not responded_to and continuation and any(cue in line for cue in reaction_cues):
-                responded_to = next((name for name in reversed(seen_speakers) if name != speaker), "")
-            stats["companion_turns"] += 1
-            focus = self.companion_focus(speaker, line)
-            character_focus = stats["focus_counts"].setdefault(speaker, {})
-            character_focus[focus] = character_focus.get(focus, 0) + 1
-            if responded_to:
-                stats["direct_responses"] += 1
-                key = f"{speaker}->{responded_to}"
-                stats["response_targets"][key] = stats["response_targets"].get(key, 0) + 1
-            if self.debug_llm or self.debug:
-                print("[COMPANION_DIAGNOSTICS]")
-                print("Character=" + speaker)
-                print("Trigger=" + ("会話継続" if continuation else "場面反応"))
-                print("RespondedTo=" + (responded_to or "なし"))
-                print("Focus=" + focus)
-            seen_speakers.append(speaker)
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            for topic in self.companion_topics([line]):
-                stats["topic_turns"].setdefault(topic, set()).add(turn_number)
-                record = stats["topics"].setdefault(
-                    topic,
-                    {
-                        "origin": speaker,
-                        "created_turn": turn_number,
-                        "last_referenced": turn_number,
-                        "turns": set(),
-                        "speakers_by_turn": {},
-                    },
-                )
-                record["last_referenced"] = turn_number
-                record["turns"].add(turn_number)
-                record["speakers_by_turn"].setdefault(turn_number, set()).add(speaker)
-
-    def print_conversation_stats(self):
-        """Print aggregate diagnostics at session end when debugging is enabled."""
-        if not (self.debug_llm or self.debug):
-            return
-        stats = self.companion_diagnostics
-        total = stats["companion_turns"]
-        direct = stats["direct_responses"]
-        rate = (direct / total * 100.0) if total else 0.0
-        repeated_topics = {
-            topic: len(turns) for topic, turns in stats["topic_turns"].items() if len(turns) >= 2
-        }
-        maintained_turns = set()
-        for topic in repeated_topics:
-            maintained_turns.update(stats["topic_turns"][topic])
-        observed = stats["observed_turns"]
-        topic_rate = (len(maintained_turns) / observed * 100.0) if observed else 0.0
-        print("[CONVERSATION_STATS]")
-        print(f"CompanionTurns={total}")
-        print(f"DirectResponseCount={direct}")
-        print(f"ChainRate={rate:.1f}%")
-        print(f"TopicMaintenanceRate={topic_rate:.1f}%")
-        for topic, count in sorted(repeated_topics.items(), key=lambda item: (-item[1], item[0])):
-            print(f"Topic={topic} TurnsReferenced={count}")
-        for pair, count in sorted(stats["response_targets"].items()):
-            print(f"ResponseTarget={pair} Count={count}")
-
-        print("[FOCUS_STATS]")
-        for character in self.companion_names():
-            counts = stats["focus_counts"].get(character, {})
-            total_focus = sum(counts.values())
-            if not total_focus:
-                continue
-            print(f"Character={character}")
-            for focus, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
-                print(f"{focus}={count / total_focus * 100.0:.1f}% Count={count}")
-
-        print("[TOPIC_ORIGIN]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            print(f"Topic={topic} Origin={record['origin']}")
-
-        print("[TOPIC_SURVIVAL]")
-        for topic, record in sorted(stats["topics"].items(), key=lambda item: (item[1]["created_turn"], item[0])):
-            lifetime = record["last_referenced"] - record["created_turn"]
-            print(
-                f"Topic={topic} CreatedTurn={record['created_turn']} "
-                f"LastReferenced={record['last_referenced']} Lifetime={lifetime}"
-            )
-
-        print("[CHARACTER_INFLUENCE]")
-        for character in self.companion_names():
-            created = sum(1 for record in stats["topics"].values() if record["origin"] == character)
-            survived = sum(
-                1
-                for record in stats["topics"].values()
-                if len(record["turns"]) >= 2
-                for turn, speakers in record["speakers_by_turn"].items()
-                if turn > record["created_turn"] and character in speakers
-            )
-            print(f"Character={character} TopicsCreated={created} TopicsSurvived={survived}")
-
-    def companion_speaker(self, line):
-        """Return the companion name at the start of a rendered dialogue line."""
-        text = str(line).strip()
-        return next((name for name in self.companion_names() if text.startswith(name)), "")
-
-    def companion_focus(self, line):
-        """Classify a line for diagnostics only; never influence generation."""
-        categories = [
-            ("段取り", ("段取り", "準備", "装備", "順番", "役割", "時間", "持って")),
-            ("仲間の様子", ("体調", "疲れ", "無理", "大丈夫", "心配", "様子", "休")),
-            ("行動", ("やる", "行こう", "試す", "開け", "押す", "壊す", "登る")),
-            ("観察", ("違和感", "音", "匂い", "形", "見える", "気になる")),
-            ("面白さ", ("面白", "すごい", "騒ぎ", "俺なら", "実は")),
-        ]
-        return next((label for label, words in categories if any(word in line for word in words)), "その他")
-
-    def companion_topics(self, lines):
-        """Extract repeated surface terms as a deliberately lightweight topic signal."""
-        ignored = {
-            "全員", "仲間", "今回", "自分", "大丈夫", "段取り", "準備", "装備",
-            "時間", "役割", "体調", "様子", "気持ち", "本当", "一緒", "問題",
-        }
-        topics = set()
-        for line in lines:
-            dialogue = re.sub(r"^[^:：「『]+[:：]?[「『]?", "", str(line))
-            for term in re.findall(r"[ァ-ヶー]{2,}|[一-龠]{2,}", dialogue):
-                if term not in ignored and not any(name in term for name in self.companion_names()):
-                    topics.add(term)
-        return topics
-
-    def observe_companion_turn(self, lines, it):
-        """Collect and print non-invasive conversation-chain diagnostics."""
-        companion_lines = [str(line).strip() for line in lines if self.companion_speaker(line)]
-        if not companion_lines:
-            return
-        stats = self.companion_diagnostics
-        stats["observed_turns"] += 1
-        turn_number = stats["observed_turns"]
-        prior_speakers = [self.companion_speaker(line) for line in self.recent_companion_lines()]
-        seen_speakers = [name for name in prior_speakers if name]
-        continuation = self.continues_companion_conversation(it.get("raw", ""))
-        reaction_cues = ("それ", "その", "そう", "たしかに", "確かに", "でも", "じゃあ", "なら", "うん", "いや")
-
-        for line in companion_lines:
-            speaker = self.companion_speaker(line)
-            mentioned = [name for name in seen_speakers if name != speaker and name in line]
-            responded_to = mentioned[-1] if mentioned else ""
-            if not responded_to and continuation and any(cue in line for cue in reaction_cues):
-                responded_to = next((name for name in reversed(seen_speakers) if name != speaker), "")
-            stats["companion_turns"] += 1
-            if responded_to:
-                stats["direct_responses"] += 1
-                key = f"{speaker}->{responded_to}"
-                stats["response_targets"][key] = stats["response_targets"].get(key, 0) + 1
-            if self.debug_llm or self.debug:
-                print("[COMPANION_DIAGNOSTICS]")
-                print("Character=" + speaker)
-                print("Trigger=" + ("会話継続" if continuation else "場面反応"))
-                print("RespondedTo=" + (responded_to or "なし"))
-                print("Focus=" + self.companion_focus(line))
-            seen_speakers.append(speaker)
-
-        for topic in self.companion_topics(companion_lines):
-            stats["topic_turns"].setdefault(topic, set()).add(turn_number)
-
-    def print_conversation_stats(self):
-        """Print aggregate diagnostics at session end when debugging is enabled."""
-        if not (self.debug_llm or self.debug):
-            return
-        stats = self.companion_diagnostics
-        total = stats["companion_turns"]
-        direct = stats["direct_responses"]
-        rate = (direct / total * 100.0) if total else 0.0
-        repeated_topics = {
-            topic: len(turns) for topic, turns in stats["topic_turns"].items() if len(turns) >= 2
-        }
-        maintained_turns = set()
-        for topic in repeated_topics:
-            maintained_turns.update(stats["topic_turns"][topic])
-        observed = stats["observed_turns"]
-        topic_rate = (len(maintained_turns) / observed * 100.0) if observed else 0.0
-        print("[CONVERSATION_STATS]")
-        print(f"CompanionTurns={total}")
-        print(f"DirectResponseCount={direct}")
-        print(f"ChainRate={rate:.1f}%")
-        print(f"TopicMaintenanceRate={topic_rate:.1f}%")
-        for topic, count in sorted(repeated_topics.items(), key=lambda item: (-item[1], item[0])):
-            print(f"Topic={topic} TurnsReferenced={count}")
-        for pair, count in sorted(stats["response_targets"].items()):
-            print(f"ResponseTarget={pair} Count={count}")
 
     def debug_companion_history(self, heading, history=None, action=None, reason=None):
         if not (self.debug_llm or self.debug):
@@ -2370,20 +954,7 @@ class Game:
             for marker in ("反応して", "答えて", "続けて", "ツッコんで", "混ざって")
         )
 
-    def requested_companions(self, raw):
-        """Extract requested participants without generating or assigning dialogue."""
-        roster = ["ニコ", "ピピ", "リュート", "クロ", "ガラン"]
-        if any(group in raw for group in ("全員", "みんな")):
-            return roster
-        positions = [(raw.find(name), name) for name in roster if name in raw]
-        return [name for _position, name in sorted(positions)]
 
-    def continues_companion_conversation(self, raw):
-        """Recognize explicit conversation-control requests, not dialogue meaning."""
-        return any(
-            marker in raw
-            for marker in ("反応して", "答えて", "続けて", "ツッコんで", "混ざって")
-        )
 
     def surface_phrase_from_raw(self, raw):
         # Extract a likely noun phrase before a Japanese case particle.
@@ -2528,20 +1099,45 @@ class Game:
             return "inspect"
         return action_type
 
+    def explicit_scene_target(self, raw, st):
+        """Return an explicitly named target that is interactable in this scene."""
+        if st is None:
+            return None
+        target_id = self.target(raw, "inspect", st)
+        kind = self.entity_kind(target_id)
+        if kind == "object" and self.object_visible_here(target_id, st):
+            return target_id
+        if kind == "npc" and self.npc_present_here(target_id, st):
+            return target_id
+        if kind == "location" and (
+            target_id == st.location
+            or target_id in self.locs.get(st.location, {}).get("exits", [])
+        ):
+            return target_id
+        surface = self.surface_target(raw, st)
+        return surface if surface else None
+
     def judge(self, raw, st=None):
         # v2.11.3: target-aware routing plus scene-surface target fallback.
-        action_check = self.match_action_check(raw, st)
-        if action_check:
-            if self.debug:
-                print(f"[ActionRoute] input={raw} route=action-check action=action_skill_check target={action_check.get('id')}")
-            return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
         companion = self.companion_target(raw)
+        explicit_target = companion or self.explicit_scene_target(raw, st)
+        if explicit_target:
+            if self.debug:
+                reason_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
+                print(
+                    f"[ActionCheckRoute]\ninput={raw}\ndecision=skipped"
+                    f"\nreason=explicit_{reason_kind}_target"
+                )
+        else:
+            action_check = self.match_action_check(raw, st)
+            if action_check:
+                return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
         if companion:
             action_type, mode = self.embedded_action_intent(raw, allowed=["consult", "ask"])
             action_type = "consult" if action_type not in {"consult", "ask"} else action_type
             target_id = companion
         else:
-            preliminary_target = self.target(raw, "inspect", st)
+            preliminary_target = explicit_target or self.target(raw, "inspect", st)
             if preliminary_target is None:
                 preliminary_target = self.surface_target(raw, st)
             kind = self.entity_kind(preliminary_target)
@@ -2586,23 +1182,64 @@ class Game:
                 target_id = None if action_type == "area_search" else self.target(raw, action_type, st)
                 action_type = self.refine_action_with_target(action_type, target_id)
         if self.debug:
+            if explicit_target:
+                explicit_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
+                print(
+                    f"[ExplicitTargetRoute]\ninput={raw}\ntarget={explicit_target}"
+                    f"\nkind={explicit_kind}\naction={action_type}\ndecision=selected"
+                )
             print(f"[ActionRoute] input={raw} route={mode} action={action_type} target={target_id}")
         return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
 
     def match_action_check(self, raw, st=None):
         """Find a scenario-defined, non-object action that matches the utterance."""
-        candidates = []
+        location = st.location if st is not None else None
+        eligible = []
         for check in self.action_checks:
             required_location = check.get("required_location")
-            if required_location and (st is None or st.location != required_location):
-                continue
+            if not required_location or required_location == location:
+                eligible.append(check)
+
+        if self.debug:
+            print(f"[ActionChecks]\nlocation={location}\ntotal={len(self.action_checks)}\neligible={len(eligible)}")
+
+        normalized_raw = self.normalize_action_example(raw)
+        candidates = []
+        for index, check in enumerate(eligible):
             examples = [str(x) for x in check.get("positive_examples", []) if str(x).strip()]
-            literal_hits = [example for example in examples if example in raw]
-            if literal_hits:
-                candidates.append((max(map(len, literal_hits)), check))
+            exact_match = normalized_raw in {self.normalize_action_example(x) for x in examples}
+            if exact_match:
+                score, score_mode = 1.0, "exact"
+            else:
+                score, score_mode = self.score_examples(raw, examples)
+            threshold = 1.0 if score_mode == "lexical" else float(os.getenv("ACTION_CHECK_EMB_THRESHOLD", "0.78"))
+            if self.debug:
+                print(
+                    f"[ActionCheckCandidate]\nid={check.get('id')}"
+                    f"\nrequired_location={check.get('required_location')}"
+                    f"\nlocation_match=True\nexact_match={exact_match}"
+                    f"\nscore={score:.3f}\nmode={score_mode}"
+                )
+            if exact_match or score >= threshold:
+                candidates.append((score, exact_match, -index, check))
+
         if candidates:
-            return max(candidates, key=lambda item: item[0])[1]
+            selected = max(candidates, key=lambda item: item[:3])[3]
+            if self.debug:
+                print(f"[ActionCheckRoute]\ninput={raw}\nid={selected.get('id')}\ndecision=selected")
+            return selected
+
+        if self.debug:
+            location_blocked = bool(self.action_checks) and not eligible
+            reason = "location_mismatch" if location_blocked else "no_similarity_match"
+            print(f"[ActionCheckRoute]\ninput={raw}\ndecision=no_match\nreason={reason}")
         return None
+
+    @staticmethod
+    def normalize_action_example(text):
+        """Normalize author-provided examples without adding game-specific words."""
+        normalized = unicodedata.normalize("NFKC", str(text)).casefold()
+        return re.sub(r"[\s\u3000、。,.!?！？]+", "", normalized)
 
     def move(self, target_id, st):
         if target_id in self.locs and target_id in self.locs[st.location].get("exits", []):
@@ -2804,17 +1441,6 @@ class Game:
         text = self.llm_gm_commentary(packet, "GM: ここでは、その対象は見当たらないようです。")
         return text.splitlines(), {"status": "fail", "category": "object_not_present"}, []
 
-    def object_not_present_response(self, it, st):
-        cur_name = self.locs.get(st.location, {}).get("name", "現在地")
-        packet = {
-            "commentary_type": "object_not_present",
-            "player_input": it.get("raw", ""),
-            "current_location": cur_name,
-            "facts": ["指定された対象は現在地で調査できない。", "対象の所在地は案内しない。", "新しい手がかりは出ない。"],
-            "style_goal": "対象がここでは見当たらないことだけを、簡潔なGM口調で伝える。別の場所や未発見情報は示さない。",
-        }
-        text = self.llm_gm_commentary(packet, "GM: ここでは、その対象は見当たらないようです。")
-        return text.splitlines(), {"status": "fail", "category": "object_not_present"}, []
 
 
     def retrieve(self, it, st):
@@ -3012,7 +1638,11 @@ class Game:
         total = base + modifier
         difficulty = int(check.get("difficulty", 0))
         success = total >= difficulty
-        lines = self.format_skill_check(skill, f"{notation} + {skill}({modifier})", total, difficulty)
+        check_prompt = check_event.get("check_prompt")
+        if not isinstance(check_prompt, str) or not check_prompt.strip():
+            check_prompt = "この行動が成功するか判定します。"
+        lines = ["GM: " + check_prompt.strip()]
+        lines += self.format_skill_check(skill, f"{notation} + {skill}({modifier})", total, difficulty)
         lines.append("成功" if success else "失敗")
         text_key = "success_text" if success else "failure_text"
         fallback = "行動に成功しました。" if success else "行動に失敗し、先へ進めません。"
