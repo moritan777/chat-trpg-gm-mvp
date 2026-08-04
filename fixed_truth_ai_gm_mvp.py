@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.16.0
+Chat-style TTRPG GM MVP v2.18.0
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -23,7 +23,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.16.0 [generic-skill-checks]"
+VERSION = "v2.18.0 [five-rank-dice-presentation]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -251,25 +251,6 @@ class Game:
 
     def recent_companion_lines(self, limit=5):
         return list(self.last_companion_turn.get("lines", []))[-limit:]
-
-    def playful_input_diagnostic(self, raw):
-        """Return the existing playful classification and an audit reason."""
-        text = unicodedata.normalize("NFKC", str(raw or "")).strip().lower()
-        if not text:
-            return False, "empty_input"
-        # These concrete, deliberately absurd actions provide a stable fallback
-        # when no separate diagnostic LLM is configured. The table-turn LLM still
-        # receives both the original input and this explicit diagnostic.
-        playful_markers = (
-            "舐め", "なめる", "飛び込", "崖から落と", "全部飲", "一気飲み",
-            "宝箱ある", "宝物ある", "秘密基地", "犯人ここ", "食べてみ",
-        )
-        matched = next((marker for marker in playful_markers if marker in text), None)
-        return (True, "matched_marker:" + matched) if matched else (False, "no_marker_match")
-
-    def playful_input(self, raw):
-        """Detect an intentionally silly table action without reclassifying normal play."""
-        return self.playful_input_diagnostic(raw)[0]
 
     def playful_input_diagnostic(self, raw):
         """Return the existing playful classification and an audit reason."""
@@ -1626,6 +1607,7 @@ class Game:
             if self.debug and selected_path and selected_path.get("id"):
                 lines.append("[GoalPath] selected=" + str(selected_path.get("id")))
             chk = g.get("check")
+            rank = None
             if chk:
                 base = self.roll_dice(chk.get("dice", "2d6"), skill=False)
                 skill = chk.get("skill")
@@ -1634,20 +1616,22 @@ class Game:
                 fixed = int(chk.get("modifier", 0))
                 total = base + sm + cm + fixed
                 diff = int(chk.get("difficulty", 0))
-                clue = f" + clue({cm})" if cm else ""
-                expression = f"{chk.get('dice','2d6')} + {skill}({sm}){clue}"
-                if fixed:
-                    expression += f" + modifier({fixed})"
-                lines += self.format_skill_check(skill, expression, total, diff)
+                rank = self.check_result_rank(total, diff)
+                lines += self.format_skill_check(
+                    chk.get("dice", "2d6"), base, sm + fixed, cm, total, rank
+                )
                 if parts:
                     lines.append("補正: " + ", ".join(f"{i}+{v}" for i, v in parts))
                 if total < diff:
-                    return lines + ["GM: " + chk.get("failure_text", "判定に失敗しました。")], {"status": "fail", "category": "check"}, []
+                    return lines + ["GM: " + chk.get("failure_text", "判定に失敗しました。")], {"status": "fail", "category": "check", "result_rank": rank}, []
                 lines.append("成功")
             ev = (selected_path or {}).get("success_event") or g.get("success_event", {})
             st.location = ev.get("moves_to", st.location)
             st.ended = True
-            return lines + ["GM: 条件を満たし、あなたは結論を実行します。", "GM: " + ev.get("text", "目標を達成しました。")], {"status": "success", "category": "goal", "path": (selected_path or {}).get("id")}, [{"type": "goal_success", "path": (selected_path or {}).get("id")}]
+            result = {"status": "success", "category": "goal", "path": (selected_path or {}).get("id")}
+            if rank is not None:
+                result["result_rank"] = rank
+            return lines + ["GM: 条件を満たし、あなたは結論を実行します。", "GM: " + ev.get("text", "目標を達成しました。")], result, [{"type": "goal_success", "path": (selected_path or {}).get("id")}]
         return ["GM: まだその結論に進むには、状況が整っていません。"], {"status": "fail", "category": "goal"}, []
 
     def run_skill(self, it, st, notes):
@@ -1666,13 +1650,14 @@ class Game:
             sm = self.skill_value(skill)
             total = base + sm
             diff = int(chk["difficulty"])
-            notes += self.format_skill_check(skill, f"{chk.get('dice','2d6')} + {skill}({sm})", total, diff)
+            rank = self.check_result_rank(total, diff)
+            notes += self.format_skill_check(chk.get("dice", "2d6"), base, sm, 0, total, rank)
             if total >= diff:
                 st.discovered.add(d["id"])
                 notes += ["成功", "発見: " + d["public_text"]]
-                return notes, {"status": "ok", "category": "skill_check"}, [{"type": "discoverable_revealed", "id": d["id"]}]
+                return notes, {"status": "ok", "category": "skill_check", "result_rank": rank}, [{"type": "discoverable_revealed", "id": d["id"]}]
             notes += ["失敗", "GM: " + chk.get("failure_text", "まだ読み取れません。")]
-            return notes, {"status": "fail", "category": "skill_check"}, []
+            return notes, {"status": "fail", "category": "skill_check", "result_rank": rank}, []
         notes.append("GM: ここからは、これ以上読み取れません。")
         return notes, {"status": "fail", "category": "skill_check"}, []
 
@@ -1685,14 +1670,29 @@ class Game:
             "stealth": "隠密",
         }.get(skill, skill)
 
-    def format_skill_check(self, skill, expression, total, difficulty):
+    @staticmethod
+    def check_result_rank(total, difficulty):
+        """Return a five-level rank without changing the success threshold."""
+        margin = total - difficulty
+        if margin >= 3:
+            return "CriticalSuccess"
+        if margin >= 0:
+            return "Success"
+        if margin >= -3:
+            return "PartialSuccess"
+        if margin >= -6:
+            return "Failure"
+        return "CriticalFailure"
+
+    def format_skill_check(self, notation, roll, skill_modifier, clue_modifier, total, rank):
         return [
-            f"【{self.skill_display_name(skill)}判定】",
-            expression,
-            "結果:",
-            str(total),
-            "難易度:",
-            str(difficulty),
+            "GM: 判定開始",
+            f"GM: {notation}を振る",
+            f"GM: 出目: {roll}",
+            f"GM: 技能補正: {skill_modifier}",
+            f"GM: 手掛かり補正: {clue_modifier}",
+            f"GM: 最終値: {total}",
+            f"GM: 結果ランク: {rank}",
         ]
 
     def apply_action_check_effect(self, effect, st):
@@ -1720,15 +1720,16 @@ class Game:
         check_prompt = check_event.get("check_prompt")
         if not isinstance(check_prompt, str) or not check_prompt.strip():
             check_prompt = "この行動が成功するか判定します。"
-        lines = ["GM: " + check_prompt.strip()]
-        lines += self.format_skill_check(skill, f"{notation} + {skill}({modifier})", total, difficulty)
+        rank = self.check_result_rank(total, difficulty)
+        lines = self.format_skill_check(notation, base, modifier, 0, total, rank)
+        lines.append("GM: " + check_prompt.strip())
         lines.append("成功" if success else "失敗")
         text_key = "success_text" if success else "failure_text"
         fallback = "行動に成功しました。" if success else "行動に失敗し、先へ進めません。"
         lines.append("GM: " + check_event.get(text_key, check.get(text_key, fallback)))
         effect_key = "success_effect" if success else "failure_effect"
         events = self.apply_action_check_effect(check_event.get(effect_key, {}) or {}, st)
-        return lines, {"status": "ok" if success else "fail", "category": "action_skill_check", "check_id": check_event.get("id")}, events
+        return lines, {"status": "ok" if success else "fail", "category": "action_skill_check", "check_id": check_event.get("id"), "result_rank": rank}, events
 
 
     def first_revealable_in_area(self, st):

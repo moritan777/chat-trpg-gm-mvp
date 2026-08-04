@@ -1,6 +1,6 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.16.0 汎用技能判定** (`v2.16.0 [generic-skill-checks]`)
+現行版: **v2.18.0 5段階判定・GMダイス演出** (`v2.18.0 [five-rank-dice-presentation]`)
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -46,6 +46,8 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 * クロ（ホラ吹き）とガラン（行動派）を含む5人の仲間アーキタイプ
 * Embeddingによる行動判定
 * オブジェクトに依存しない汎用技能判定と成功・失敗効果
+* 判定結果の5段階ランク（`CriticalSuccess` / `Success` / `PartialSuccess` / `Failure` / `CriticalFailure`）
+* 出目、技能・手掛かり補正、最終値、結果ランクを順に伝えるGMダイス演出
 
 ---
 
