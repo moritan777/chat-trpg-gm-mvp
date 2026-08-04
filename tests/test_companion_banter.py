@@ -158,6 +158,33 @@ class CompanionBanterTests(unittest.TestCase):
                 self.assertEqual(intent["action_type"], "consult")
                 self.assertEqual(intent["target_id"], target)
 
+
+    def test_table_turn_drops_noncanonical_companion_speakers(self):
+        game = self.make_game()
+        state = State("harbor")
+        intent = {"raw": "倉庫を見る", "action_type": "inspect", "target_id": "warehouse"}
+        result = {"status": "ok", "category": "surface_inspect"}
+        events = []
+
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp", "TABLE_TURN_RENDER": "1"}):
+            game.post_json = lambda *args, **kwargs: {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "GM: 倉庫は静まり返っている。\nルータ: 倉庫で人影……。\nクロ: 俺なら見逃さないぞ。"
+                        }
+                    }
+                ]
+            }
+            rendered, _ = game.render_table_turn(
+                ["GM: 倉庫は静まり返っている。"], intent, result, events, state
+            )
+
+        self.assertIn("GM: 倉庫は静まり返っている。", rendered)
+        self.assertIn("クロ: 俺なら見逃さないぞ。", rendered)
+        self.assertNotIn("ルータ: 倉庫で人影……。", rendered)
+        self.assertEqual(game.recent_companion_lines(), ["クロ: 俺なら見逃さないぞ。"])
+
     def test_prompt_limits_playful_mode_and_balances_kuro_and_garan(self):
         prompt = self.make_game().companion_banter_prompt()
 
@@ -252,7 +279,7 @@ class CompanionBanterTests(unittest.TestCase):
 
         def fake_post_json(url, body, timeout, tag):
             captured.append((url, body, timeout, tag))
-            return {"choices": [{"message": {"content": "GM: ランタンが割れている。\nニコ: 空から落ちた、とかだったりして？\nリュート: ずいぶん高いところから来たな。"}}]}
+            return {"choices": [{"message": {"content": "GM: ランタンが割れている。\nニコ: 空から落ちた、とかだったりして？\nクロ: ずいぶん高いところから来たな。"}}]}
 
         game.post_json = fake_post_json
         before = (state.location, set(state.discovered))
@@ -407,14 +434,9 @@ class CompanionBanterTests(unittest.TestCase):
     def test_prompt_distinguishes_what_each_companion_notices_first(self):
         prompt = self.make_game().companion_banter_prompt()
 
-        self.assertIn("状況を整理し、複数の案を比較し、どの選択が現実的かを考える", prompt)
-        self.assertIn("真っ先の行動、妙な連想、大げさな推測はしない", prompt)
-        self.assertIn("誰かの案には", prompt)
-        self.assertIn("それもありだな", prompt)
-        self.assertIn("その方法にはこういう利点がある", prompt)
-        self.assertIn("感情や勢いより状況判断を優先", prompt)
-        self.assertIn("推理役、解説役、安全管理役には固定しない", prompt)
-        self.assertIn("判断や評価は行うが、最終決定はPLへ残す", prompt)
+        self.assertIn("利用可能な仲間はニコ、ピピ、クロ、ガランのみ", prompt)
+        self.assertIn("この4名以外の名前を仲間発言者として出力してはいけない", prompt)
+        self.assertIn("仲間行の話者ラベルは必ず、ニコ、ピピ、クロ、ガラン", prompt)
         self.assertIn("小さな要素から妙な連想", prompt)
         self.assertIn("観察そのものより「そこから何を思い付くか」を優先", prompt)
         self.assertIn("霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説", prompt)
@@ -528,8 +550,8 @@ class CompanionBanterTests(unittest.TestCase):
                 [
                     "ピピ: みんな疲れているから休もう",
                     "ピピ: 漁師さんも不安そうだね",
-                    "リュート: 誰が道具を持つか役割分担しよう",
-                    "リュート: 時間を決めて先に点検しよう",
+                    "ガラン: 誰が道具を持つか役割分担しよう",
+                    "ガラン: 時間を決めて先に点検しよう",
                 ],
                 {"raw": "全員で雑談して", "action_type": "consult"},
             )
@@ -539,20 +561,19 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("Character=ピピ", diagnostics)
         self.assertIn("体調=50.0% Count=1", diagnostics)
         self.assertIn("NPC=50.0% Count=1", diagnostics)
-        self.assertIn("Character=リュート", diagnostics)
-        self.assertIn("役割分担=50.0% Count=1", diagnostics)
-        self.assertIn("時間配分=50.0% Count=1", diagnostics)
+        self.assertIn("Character=ガラン", diagnostics)
+        self.assertIn("段取り=100.0% Count=2", diagnostics)
 
-    def test_character_topic_diagnostics_count_ryute_bias_terms(self):
+    def test_character_topic_diagnostics_count_garan_action_terms(self):
         game = self.make_game()
         game.debug_llm = True
-        intent = {"raw": "リュート確認して", "action_type": "consult"}
+        intent = {"raw": "ガラン確認して", "action_type": "consult"}
 
         with redirect_stdout(io.StringIO()) as output:
             game.observe_companion_turn(
                 [
-                    "リュート: 安全確認をして装備を点検しよう",
-                    "リュート: 安全なルートを選ぼう",
+                    "ガラン: 安全確認をして装備を点検しよう",
+                    "ガラン: 安全なルートを選ぼう",
                 ],
                 intent,
             )
@@ -560,15 +581,15 @@ class CompanionBanterTests(unittest.TestCase):
 
         diagnostics = output.getvalue()
         self.assertIn("[COMPANION_TOPIC]", diagnostics)
-        self.assertIn("Character=リュート", diagnostics)
+        self.assertIn("Character=ガラン", diagnostics)
         self.assertIn("Topic=安全", diagnostics)
         self.assertIn("Topic=確認", diagnostics)
         self.assertIn("Topic=装備", diagnostics)
         self.assertIn("Topic=ルート", diagnostics)
-        self.assertIn("CharacterTopic=リュート Topic=安全 Count=2", diagnostics)
-        self.assertIn("CharacterTopic=リュート Topic=確認 Count=1", diagnostics)
-        self.assertIn("CharacterTopic=リュート Topic=装備 Count=1", diagnostics)
-        self.assertIn("CharacterTopic=リュート Topic=ルート Count=1", diagnostics)
+        self.assertIn("CharacterTopic=ガラン Topic=安全 Count=2", diagnostics)
+        self.assertIn("CharacterTopic=ガラン Topic=確認 Count=1", diagnostics)
+        self.assertIn("CharacterTopic=ガラン Topic=装備 Count=1", diagnostics)
+        self.assertIn("CharacterTopic=ガラン Topic=ルート Count=1", diagnostics)
 
     def test_nico_focus_distinguishes_observation_from_association(self):
         game = self.make_game()
@@ -651,10 +672,10 @@ class CompanionBanterTests(unittest.TestCase):
         game.remember_companion_turn(
             [
                 "ニコ: 一つ目。",
-                "リュート: 二つ目。",
+                "クロ: 二つ目。",
                 "ピピ: 三つ目。",
                 "ニコ: 四つ目。",
-                "リュート: 五つ目。",
+                "クロ: 五つ目。",
             ],
             old_intent,
             state,
@@ -678,7 +699,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertEqual(history["lines"], [])
         self.assertNotIn("ニコ: 一つ目。", history["lines"])
         self.assertNotIn("ニコ: 古い別ターン。", history["lines"])
-        self.assertNotIn("リュート: 二つ目。", packet["current_observations"])
+        self.assertNotIn("クロ: 二つ目。", packet["current_observations"])
         self.assertIn("コピーや言い換え再出力は禁止", history["usage"])
         self.assertTrue(any("世界設定や発見済み情報として扱わない" in x for x in packet["safety"]))
 
@@ -689,7 +710,7 @@ class CompanionBanterTests(unittest.TestCase):
         game = self.make_game()
         state = State("harbor")
         old_intent = {"raw": "村長の話を聞く", "action_type": "ask", "target_id": "village_head"}
-        game.remember_companion_turn(["リュート: 倉庫なら隠れやすいな。"], old_intent, state)
+        game.remember_companion_turn(["クロ: 倉庫なら隠れやすいな。"], old_intent, state)
 
         state.location = "warehouse"
         packet = game.packet(
@@ -758,12 +779,12 @@ class CompanionBanterTests(unittest.TestCase):
         )
 
         packet = game.packet(
-            {"raw": "リュート反応して", "action_type": "consult", "target_id": "companion:リュート"},
+            {"raw": "クロ反応して", "action_type": "consult", "target_id": "companion:クロ"},
             [],
             state,
         )
 
-        self.assertEqual(packet["requested_companions"], ["リュート"])
+        self.assertEqual(packet["requested_companions"], ["クロ"])
         self.assertEqual(packet["conversation_context"]["mode"], "continue")
         self.assertEqual(
             packet["conversation_context"]["previous_companion_lines"],
@@ -781,7 +802,7 @@ class CompanionBanterTests(unittest.TestCase):
         state.location = "warehouse"
 
         packet = game.packet(
-            {"raw": "リュートも混ざって", "action_type": "consult", "target_id": "companion:リュート"},
+            {"raw": "クロも混ざって", "action_type": "consult", "target_id": "companion:クロ"},
             [],
             state,
         )
@@ -880,7 +901,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertEqual(everyone_intent["action_type"], "consult")
         self.assertEqual(
             everyone["requested_companions"],
-            ["ニコ", "ピピ", "リュート", "クロ", "ガラン"],
+            ["ニコ", "ピピ", "クロ", "ガラン"],
         )
 
     def test_table_renderer_reads_history_then_saves_current_response_once(self):
@@ -893,7 +914,7 @@ class CompanionBanterTests(unittest.TestCase):
         def fake_post_json(url, body, timeout, tag):
             captured.append(json.loads(body["messages"][1]["content"]))
             self.assertEqual(game.last_companion_turn["context"]["target"], "lighthouse_lens")
-            return {"choices": [{"message": {"content": "GM: 弁を調べた。\nリュート: 少し休もうぜ。"}}]}
+            return {"choices": [{"message": {"content": "GM: 弁を調べた。\nクロ: 少し休もうぜ。"}}]}
 
         game.post_json = fake_post_json
         with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
@@ -910,7 +931,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertEqual(safe["recent_companion_lines"]["lines"], [])
         self.assertNotIn("古いレンズの台詞", json.dumps(safe["current_observations"], ensure_ascii=False))
         self.assertEqual(game.last_companion_turn["context"]["target"], "oil_valve")
-        self.assertEqual(game.recent_companion_lines(), ["リュート: 少し休もうぜ。"])
+        self.assertEqual(game.recent_companion_lines(), ["クロ: 少し休もうぜ。"])
 
     def test_companion_observation_reduction_keeps_canonical_gm_discovery(self):
         game = self.make_game()
