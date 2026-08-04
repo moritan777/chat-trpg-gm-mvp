@@ -199,9 +199,9 @@ class Game:
             "\n"
             "【ニコ】\n"
             "小さな要素から妙な連想をする。細部、形、音、匂い、小物、違和感などに目が向きやすいが、"
-            "観察そのものより「そこから何を思い付くか」を優先する。話題が少し飛んでもよい。"
+            "観察そのものより「そこから何を思い付くか」を優先する。"
             "霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説を思い出すような連想をしてよい。"
-            "観察で終わらず、その観察から思い出した話、昔話、噂、妙な想像、全く別の話題へ飛んでもよい。"
+            "観察で終わらず、昔話、噂、妙な想像、全く別の話題へ飛んでもよい。"
             "むしろ単なる観察報告だけより、連想先まで話す方を好む。"
             "連想先は有益でも正確でもなくてよい。単なる観察報告で終えるより、"
             "「だから○○を思い出した」「そういえば○○って聞いたことない？」のように連想まで進める。"
@@ -1368,6 +1368,26 @@ class Game:
             return False
         return st.location in self.npc_location_ids(npc_id)
 
+    def present_npc_names(self, st):
+        """Return public names of NPCs the players can currently talk to."""
+        location = self.locs.get(st.location, {})
+        return [
+            self.npcs[npc_id].get("name", npc_id)
+            for npc_id in location.get("npcs", [])
+            if npc_id in self.npcs and self.npc_present_here(npc_id, st)
+        ]
+
+    def arrival_npc_line(self, st):
+        """Build a minimal, clue-free arrival observation for present NPCs."""
+        names = self.present_npc_names(st)
+        if not names:
+            return ""
+        if len(names) == 1:
+            subject = names[0]
+        else:
+            subject = "、".join(names[:-1]) + "と" + names[-1]
+        return f"GM: 辺りには、{subject}の姿も見えます。"
+
     def npc_absent_notes(self, npc_id, st):
         npc = self.npcs.get(npc_id, {})
         name = npc.get("name", npc_id)
@@ -2199,6 +2219,15 @@ class Game:
         if not notes:
             return notes, ""
 
+        # Location intros historically described only scenery and objects.  Add a
+        # deliberately clue-free observation so an NPC does not first appear only
+        # after the player addresses them.  This remains prose rather than a UI-like
+        # list, and unavailable/hidden NPCs are filtered by the normal state rules.
+        if res.get("status") == "ok" and res.get("category") == "move":
+            npc_line = self.arrival_npc_line(st)
+            if npc_line and npc_line not in notes:
+                notes = list(notes) + [npc_line]
+
         gm_indexes, gm_lines = [], []
         for i, line in enumerate(notes):
             if isinstance(line, str) and line.startswith("GM:"):
@@ -2288,6 +2317,7 @@ class Game:
             "【GMの責務・必須】canonical_gm_textに沿い、行動、観察可能な状態、場面を自然な卓上GM口調で描写する。"
             "正式発見は後続のGM行で原文表示されるため詳しく反復しない。"
             "Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない。"
+            "会話NPCを秘密抜きで風景に描き、一覧にしない。"
             "仲間への直接の依頼では本人の反応をGM本文で先回りしない。\n\n"
             "【仲間への入力・必須】safe_banter_packetを情報境界とする。"
             "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move なら重要な手掛かりがあるふりをしない。\n\n"
