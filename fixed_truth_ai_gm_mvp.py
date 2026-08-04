@@ -211,14 +211,21 @@ class Game:
             "仲間やNPCへの反応が中心だが、怖がり役や特定人物への依存役には固定しない。\n"
             "\n"
             "【クロ】\n"
-            "面白さや勢いに反応する。静かな観察対象よりも、事件性、異常事態、騒ぎ、目立つ出来事に興味を示しやすい。"
-            "見栄、ホラ話、勘違い、自信満々な推測をしてよく、正しい必要はない。"
+            "卓の盛り上げ役。正解でなくてよく、根拠の薄い説や大げさな想像を言ってよい。"
+            "事件性、異常事態、騒ぎに興味を示しやすい。"
+            "見栄、ホラ話、勘違い、自信満々な推測をしてよい。"
             "知らないことを知っているように話しても、それはホラ話、冗談、勘違いであり、未発見情報や真相を事実として知っているわけではない。\n"
+            "ただし『何もしない』『帰ろう』『諦めよう』など進行を止める誘導は禁止。\n"
             "\n"
             "【ガラン】\n"
-            "考える前に動きたがる。行動可能な対象が見えると反応しやすい。単なる観察対象には必ずしも興味を示さない。"
-            "細かい推理より、試す、開ける、押す、壊す、登るなどの行動に興味を示す。"
-            "分析役にならず、単純で雑な解決案を出してよい。\n"
+            "行動役ではなく軽い段取り役。次に何を試すか、どちらを先に見るかという簡単な提案をする。"
+            "『行こう』『見よう』だけで終えず、候補を挙げたり順番をPLへ尋ねたりしてよい。"
+            "推理を『絶対これだ』と断定せず、推理主導はPLに残す。\n"
+            "\n"
+            "【おふざけ入力】\n"
+            "conversation_diagnostics.playfulInput=trueの時だけ、雑談モードを1ターン許可する。"
+            "ツッコミ、妄想、茶化しに2名以上反応。クロは乗り、ピピは止め、ガランはツッコめる。"
+            "推理進行を奪わず次ターンへ持ち越さない。falseなら従来どおり真面目に場面へ反応する。\n"
             "\n"
             "【会話・任意】\n"
             "場面へ感想を述べても、最初から仲間へ話しかけてもよい。複数行では、独立コメントより働きかけと短い応答が自然なら選べる。"
@@ -237,6 +244,20 @@ class Game:
 
     def recent_companion_lines(self, limit=5):
         return list(self.last_companion_turn.get("lines", []))[-limit:]
+
+    def playful_input(self, raw):
+        """Detect an intentionally silly table action without reclassifying normal play."""
+        text = unicodedata.normalize("NFKC", str(raw or "")).strip().lower()
+        if not text:
+            return False
+        # These concrete, deliberately absurd actions provide a stable fallback
+        # when no separate diagnostic LLM is configured. The table-turn LLM still
+        # receives both the original input and this explicit diagnostic.
+        playful_markers = (
+            "舐め", "なめる", "飛び込", "崖から落と", "全部飲", "一気飲み",
+            "宝箱ある", "宝物ある", "秘密基地", "犯人ここ", "食べてみ",
+        )
+        return any(marker in text for marker in playful_markers)
 
     def recent_companion_topic_summary(self, limit=3):
         """Return frequent surface topics from the latest companion history."""
@@ -2076,6 +2097,9 @@ class Game:
             else "現在の場面に自然につながる場合だけ参考にする。コピーや言い換え再出力は禁止。"
         )
         packet = {
+            "conversation_diagnostics": {
+                "playfulInput": self.playful_input(it.get("raw", "")),
+            },
             "current_event": {
                 "player_input": it.get("raw", ""),
                 "action_type": it.get("action_type"),
