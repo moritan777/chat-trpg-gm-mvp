@@ -41,6 +41,8 @@ class State:
 
 
 class Game:
+    CANONICAL_COMPANIONS = ["ニコ", "ピピ", "クロ", "ガラン"]
+
     MAX_CONVERSATION_CONTINUE_TURNS = 5
 
     def __init__(self, scenario_dir, debug_judge=False, debug_llm=False, debug_embedding=False, dice_total=None, skill_dice_total=None, dice_seed=None):
@@ -184,18 +186,14 @@ class Game:
             "current_observationsは表層情報で、未公開情報、内部情報、正解ルートは知らない。"
             "仮説、冗談、勘違い、過去の仲間台詞を確定事実や攻略情報にしない。\n"
             "\n"
+            "【仲間名・必須】\n"
+            f"利用可能な仲間は{'、'.join(self.companion_names())}のみ。"
+            "この4名以外の名前を仲間発言者として出力してはいけない。"
+            "仲間行の話者ラベルは必ず、ニコ、ピピ、クロ、ガランのいずれかにする。\n"
+            "\n"
             "【仲間の役割】\n"
             "仲間はGMの補助説明員ではなく、人物関係と卓の空気を作る参加者である。"
             "シナリオ上の重要度と人物の興味は別。事件だけでなく、環境、物、身体感覚、仲間、些細なことも話題にできる。\n"
-            "\n"
-            "【リュート】\n"
-            "状況を整理し、複数の案を比較し、どの選択が現実的かを考える。"
-            "真っ先の行動、妙な連想、大げさな推測はしない。"
-            "誰かの案には、「それもありだな」「先にこっちかもしれない」"
-            "「その方法にはこういう利点がある」のように評価・比較する。"
-            "慎重さに固定せず、感情や勢いより状況判断を優先しやすい。"
-            "推理役、解説役、安全管理役には固定しない。"
-            "判断や評価は行うが、最終決定はPLへ残す。\n"
             "\n"
             "【ニコ】\n"
             "小さな要素から妙な連想をする。細部、形、音、匂い、小物、違和感などに目が向きやすいが、"
@@ -348,13 +346,6 @@ class Game:
                 return "不安"
             if any(word in line for word in ("仲間", "みんな", "無理", "困", "様子")):
                 return "仲間の様子"
-        if speaker == "リュート":
-            if any(word in line for word in ("役割", "分担", "誰が", "担当")):
-                return "役割分担"
-            if any(word in line for word in ("時間", "先に", "後で", "順番")):
-                return "時間配分"
-            if any(word in line for word in ("装備", "道具", "持って", "荷物")):
-                return "装備"
             if any(word in line for word in ("段取り", "準備", "移動", "ルート", "確認", "確保", "点検")):
                 return "段取り"
         categories = [
@@ -718,7 +709,7 @@ class Game:
             "canonical_gm_textのGM発話だけを、TRPGリプレイの卓でGMが実際に喋っているような口調へ言い換える。"
             "新しい事実は作らない。意味・事実・情報量を増やさない。未発見の手がかり、真相、正解ルートを追加しない。"
             "『発見:』『判定:』『結果:』『補正:』などのログ行は絶対に作らない。"
-            "リュート/ニコ/ピピ/クロ/ガランなど仲間発言は禁止。GM発話だけを書く。"
+            "ニコ/ピピ/クロ/ガランなど仲間発言は禁止。GM発話だけを書く。"
             "出力は必ず『GM:』で始める。JSON、箇条書き、コードブロックは禁止。"
             "\n\n"
             "【GMの口調】"
@@ -872,7 +863,7 @@ class Game:
         return [x for x in dict.fromkeys(names) if x]
 
     def companion_names(self):
-        return ["ニコ", "ピピ", "リュート", "クロ", "ガラン"]
+        return list(self.CANONICAL_COMPANIONS)
 
     def action_intent_examples(self):
         return {
@@ -1295,106 +1286,6 @@ class Game:
         """Normalize author-provided examples without adding game-specific words."""
         normalized = unicodedata.normalize("NFKC", str(text)).casefold()
         return re.sub(r"[\s\u3000、。,.!?！？]+", "", normalized)
-
-    def infer_generic_skill_action(self, raw):
-        """Infer a standard skill for free-form actions that no scenario route handled."""
-        text = self.normalize_action_example(raw)
-        patterns = (
-            (
-                "athletics",
-                "運動",
-                "身体を使って強引に状況を切り開こうとしています。",
-                ("登", "走", "飛", "跳", "越え", "持ち上げ", "動か", "押", "引", "投げ", "運ぶ", "泳", "よじ"),
-            ),
-            (
-                "survival",
-                "生存",
-                "周囲の環境を読み取りながら行動します。",
-                ("足跡", "追う", "たど", "辿", "ロープ跡", "海岸", "探索", "飲む", "食べ", "火を起こ", "野営"),
-            ),
-            (
-                "persuasion",
-                "説得",
-                "相手の反応を見ながら言葉で状況を動かそうとしています。",
-                ("説得", "頼み", "ごまか", "誤魔化", "聞き出", "交渉", "言いくるめ", "なだめ", "脅", "お願い"),
-            ),
-            (
-                "stealth",
-                "隠密",
-                "気配を抑えて慎重に行動します。",
-                ("忍び", "隠れ", "隠れる", "気付かれない", "気づかれない", "こっそり", "密か", "身を隠", "様子を見る"),
-            ),
-            (
-                "investigation",
-                "調査",
-                "対象や周囲を詳しく観察し、手掛かりを探します。",
-                ("詳しく", "調べ", "分析", "手掛かり", "手がかり", "痕跡", "探す", "探し", "観察", "確認", "覗", "見る"),
-            ),
-        )
-        hits = []
-        for priority, (skill, label, description, keywords) in enumerate(patterns):
-            matched = [keyword for keyword in keywords if keyword in text]
-            if matched:
-                hits.append((len(matched), -priority, skill, label, description))
-        if not hits:
-            return None
-        _count, _priority, skill, label, description = max(hits)
-        return {"skill": skill, "label": label, "description": description}
-
-    def should_route_generic_skill_action(self, action_type, target_id):
-        if target_id is not None:
-            return False
-        return action_type in {"action", "inspect", "skill_check", "move"}
-
-    def infer_generic_skill_action(self, raw):
-        """Infer a standard skill for free-form actions that no scenario route handled."""
-        text = self.normalize_action_example(raw)
-        patterns = (
-            (
-                "athletics",
-                "運動",
-                "身体を使って強引に状況を切り開こうとしています。",
-                ("登", "走", "飛", "跳", "越え", "持ち上げ", "動か", "押", "引", "投げ", "運ぶ", "泳", "よじ"),
-            ),
-            (
-                "survival",
-                "生存",
-                "周囲の環境を読み取りながら行動します。",
-                ("足跡", "追う", "たど", "辿", "ロープ跡", "海岸", "探索", "飲む", "食べ", "火を起こ", "野営"),
-            ),
-            (
-                "persuasion",
-                "説得",
-                "相手の反応を見ながら言葉で状況を動かそうとしています。",
-                ("説得", "頼み", "ごまか", "誤魔化", "聞き出", "交渉", "言いくるめ", "なだめ", "脅", "お願い"),
-            ),
-            (
-                "stealth",
-                "隠密",
-                "気配を抑えて慎重に行動します。",
-                ("忍び", "隠れ", "隠れる", "気付かれない", "気づかれない", "こっそり", "密か", "身を隠", "様子を見る"),
-            ),
-            (
-                "investigation",
-                "調査",
-                "対象や周囲を詳しく観察し、手掛かりを探します。",
-                ("詳しく", "調べ", "分析", "手掛かり", "手がかり", "痕跡", "探す", "探し", "観察", "確認", "覗", "見る"),
-            ),
-        )
-        hits = []
-        for priority, (skill, label, description, keywords) in enumerate(patterns):
-            matched = [keyword for keyword in keywords if keyword in text]
-            if matched:
-                hits.append((len(matched), -priority, skill, label, description))
-        if not hits:
-            return None
-        _count, _priority, skill, label, description = max(hits)
-        return {"skill": skill, "label": label, "description": description}
-
-    def should_route_generic_skill_action(self, action_type, target_id):
-        if target_id is not None:
-            return False
-        return action_type in {"action", "inspect", "skill_check", "move"}
 
     def infer_generic_skill_action(self, raw):
         """Infer a standard skill for free-form actions that no scenario route handled."""
@@ -2384,6 +2275,48 @@ class Game:
         """Add only the GM prefix; do not rewrite authored discovery content."""
         return [text if text.startswith("GM:") else "GM: " + text for text in self.official_discovery_texts(ev)]
 
+    @staticmethod
+    def semantic_coverage_terms(text):
+        """Return stable surface terms for checking whether a discovery was rendered.
+
+        This intentionally avoids exact full-string matching because the LLM can
+        rewrite official discovery prose while preserving its content.
+        """
+        normalized = unicodedata.normalize("NFKC", str(text or ""))
+        normalized = re.sub(r"^GM[:：]\s*", "", normalized)
+        terms = [
+            term
+            for term in re.split(r"[\s\u3000、。,.!?！？『』「」（）()]+|(?:は|が|を|に|で|と|の|へ|から|まで|より|も|や|だ|だった|でした|して|した|する|いる|いた)", normalized)
+            if len(term) >= 2
+        ]
+        compact = re.sub(r"[\s\u3000、。,.!?！？『』「」（）()：:]+", "", normalized)
+        compact = re.sub(r"^GM", "", compact)
+        bigrams = [compact[index:index + 2] for index in range(max(len(compact) - 1, 0))]
+        return [term for term in dict.fromkeys(terms + bigrams) if len(term) >= 2]
+
+    def discovery_line_is_integrated(self, official_line, gm_rendered):
+        """Heuristically detect whether rewritten GM prose already carries a discovery.
+
+        The check is based on surface term coverage rather than exact string
+        equality, so minor LLM wording changes do not force a duplicate official
+        line while missing discoveries still get inserted verbatim afterward.
+        """
+        terms = self.semantic_coverage_terms(official_line)
+        if not terms:
+            return False
+        rendered_text = "\n".join(str(line) for line in gm_rendered)
+        rendered_terms = set(self.semantic_coverage_terms(rendered_text))
+        matched = sum(1 for term in terms if term in rendered_terms or term in rendered_text)
+        coverage = matched / len(terms)
+        threshold = float(os.getenv("DISCOVERY_INTEGRATION_COVERAGE", "0.62"))
+        return coverage >= threshold
+
+    def missing_official_gm_lines(self, official_gm_lines, gm_rendered):
+        return [
+            line for line in official_gm_lines
+            if not self.discovery_line_is_integrated(line, gm_rendered)
+        ]
+
     def companion_surface_observations(self, target_id):
         """Return only pre-authored, visible material for companion context.
 
@@ -2721,13 +2654,21 @@ class Game:
             print("[TABLE_TURN_RAW]", repr(out))
 
         rendered_lines = [x.strip() for x in out.splitlines() if x.strip()]
-        companion_prefixes = tuple(self.companion_names())
+        companion_prefixes = tuple(prefix for name in self.companion_names() for prefix in (f"{name}:", f"{name}："))
+        speaker_line_pattern = re.compile(r"^([^:：]{1,20})[:：]")
         gm_rendered, companion_rendered = [], []
+        dropped_unknown_speakers = []
         for line in rendered_lines:
             if line.startswith(companion_prefixes):
                 companion_rendered.append(line)
             else:
+                speaker_match = speaker_line_pattern.match(line)
+                if speaker_match and not line.startswith("GM:"):
+                    dropped_unknown_speakers.append(line)
+                    continue
                 gm_rendered.append(line)
+        if dropped_unknown_speakers and (self.debug_llm or self.debug):
+            print("[TABLE_TURN_DROPPED_UNKNOWN_COMPANION]", repr(dropped_unknown_speakers))
         if not gm_rendered:
             gm_rendered = [rendered_lines[0]] if rendered_lines else gm_lines
             companion_rendered = rendered_lines[1:] if len(rendered_lines) > 1 else []
@@ -2742,9 +2683,11 @@ class Game:
             new_notes = [line for line in new_notes if not (isinstance(line, str) and line.startswith("発見:"))]
 
         insert_at = first + len(gm_rendered)
+        official_lines_to_insert = official_gm_lines
         if discovery_display in {"gm", "both"} and official_gm_lines:
-            new_notes[insert_at:insert_at] = official_gm_lines
-            insert_at += len(official_gm_lines)
+            official_lines_to_insert = self.missing_official_gm_lines(official_gm_lines, gm_rendered)
+            new_notes[insert_at:insert_at] = official_lines_to_insert
+            insert_at += len(official_lines_to_insert)
         while insert_at < len(new_notes):
             line = new_notes[insert_at]
             if isinstance(line, str) and line.startswith(("発見:", "判定:", "結果:", "補正:", "[")):
@@ -2754,7 +2697,13 @@ class Game:
         if companion_rendered:
             new_notes[insert_at:insert_at] = companion_rendered
 
-        self.last_table_turn = {"canonical_gm": canonical_gm, "output": out, "packet": packet}
+        self.last_table_turn = {
+            "canonical_gm": canonical_gm,
+            "output": out,
+            "packet": packet,
+            "official_gm_lines": official_gm_lines,
+            "official_gm_lines_inserted": official_lines_to_insert,
+        }
         self.observe_companion_turn(companion_rendered, it)
         self.remember_companion_turn(companion_rendered, it, st)
         self.debug_companion_history("CompanionHistoryAfter")
