@@ -14,6 +14,8 @@
     "GM: 港\n├ 酒場\n├ 倉庫\n└ 岬の道\n      ├ 灯台\n      └ 岩場の海岸\n             └ 海蝕洞（干潮時のみ）",
     "GM: 調査を進める中で、新しい場所や情報が見つかるかもしれません。",
     "GM: 夜明け前に灯台の灯が消え、そのまま灯台守のユアンが行方不明になりました。",
+    "GM: 移動、調査、聞き込みだけでなく、『崖を登る』『足跡を追う』『隠れて様子を見る』『説得する』などの自由な行動も宣言できます。",
+    "GM: 状況によっては技能判定が行われ、出目の結果が周囲の描写や得られる情報に反映されます。",
     "村長: 『灯が消えたのは初めてだ。船が一隻、危うく岩礁に乗り上げるところだった』",
     "漁師: 『昨夜、岬の下で妙な明かりを見た。灯台の灯とは違う、低い青い光だった』",
     "GM: 港には濡れたロープと潮の匂いが残っています。さて、どうしますか？"
@@ -42,6 +44,36 @@
         "difficulty": 8
       },
       "check_prompt": "嵐の影響で崖はぬかるみ、足場も不安定になっています。安全に登れるか、生存判定を行います。",
+      "on_critical_success": {
+        "text": "危なげなく崖を登り切り、上から海岸と灯台へ続く道筋まで見渡せました。",
+        "effect": {
+          "move_to": "lighthouse_entrance"
+        }
+      },
+      "on_success": {
+        "text": "安全な足場を見つけ、灯台入口まで登り切りました。",
+        "effect": {
+          "move_to": "lighthouse_entrance"
+        }
+      },
+      "on_partial_success": {
+        "text": "崖の中腹までは進めました。上の様子は見えますが、そこから先へ進むには慎重な判断が必要です。",
+        "effect": {
+          "delay": true
+        }
+      },
+      "on_failure": {
+        "text": "足場が崩れ、岬の道で立ち止まります。",
+        "effect": {
+          "delay": true
+        }
+      },
+      "on_critical_failure": {
+        "text": "途中で足を滑らせ、崖に小石を大きく落としてしまいました。幸い大きな怪我はありませんが、登攀は失敗です。",
+        "effect": {
+          "delay": true
+        }
+      },
       "success_text": "安全な足場を見つけ、灯台入口まで登り切りました。",
       "failure_text": "足場が崩れ、岬の道で立ち止まります。",
       "success_effect": {
@@ -50,6 +82,39 @@
       "failure_effect": {
         "delay": true
       }
+    },
+    {
+      "id": "track_cliff_footprints",
+      "required_location": "cliff_path",
+      "positive_examples": [
+        "足跡を追う",
+        "足跡をたどる",
+        "足跡の先を追跡する",
+        "ロープ跡をたどる"
+      ],
+      "skill_check": {
+        "skill": "survival",
+        "dice": "2d6",
+        "difficulty": 8
+      },
+      "check_prompt": "雨で崩れた泥の上に、灯台へ向かう足跡と海岸へ下る足跡が混じっています。痕跡を追えるか、生存判定を行います。",
+      "on_critical_success": {
+        "text": "足跡の主が灯台から海岸へ下り、途中で誰かを支えたことまで読み取れました。海蝕洞へ向かう線が濃厚です。"
+      },
+      "on_success": {
+        "text": "足跡は灯台から海岸へ向かい、岩場の方へ続いていると分かりました。"
+      },
+      "on_partial_success": {
+        "text": "足跡の細部は雨で崩れていますが、少なくとも海岸側へ向かったらしいことは分かりました。"
+      },
+      "on_failure": {
+        "text": "足跡は雨と崩れた泥に紛れ、ここから先は見失ってしまいます。"
+      },
+      "on_critical_failure": {
+        "text": "足跡を追おうとして、古い痕跡と新しい痕跡を取り違えたようです。確かな方向はつかめません。"
+      },
+      "success_text": "足跡は灯台から海岸へ向かい、岩場の方へ続いていると分かりました。",
+      "failure_text": "足跡は雨と崩れた泥に紛れ、ここから先は見失ってしまいます。"
     }
   ],
   "locations": [
@@ -64,7 +129,7 @@
         "村に戻る",
         "港へ戻る"
       ],
-      "intro": "小さな港。桟橋には濡れたロープと潮汐表が残されている。",
+      "intro": "小さな港。桟橋には濡れたロープと潮汐表が残され、霧の向こうで倉庫番らしき人影が周囲を警戒している。",
       "banter_observation": "港の水面はまだ荒れており、霧が低く漂っている。",
       "npcs": [
         "village_head"
@@ -85,7 +150,7 @@
       "aliases": [
         "酒場"
       ],
-      "intro": "嵐の夜を過ごした漁師たちが集まる酒場。窓は潮で白く曇っている。",
+      "intro": "嵐の夜を過ごした漁師たちが集まる酒場。窓は潮で白く曇り、客たちは灯台の話題になると互いの表情をうかがっている。",
       "banter_observation": "酒場の客は、昨夜の灯台の話になると声を落とす。",
       "npcs": [
         "fisherman"
@@ -105,7 +170,7 @@
         "倉庫",
         "港の倉庫"
       ],
-      "intro": "漁具と荷箱が積まれた倉庫。奥に濡れた荷箱と古い航路図が置かれている。",
+      "intro": "漁具と荷箱が積まれた倉庫。奥に濡れた荷箱と古い航路図が置かれ、入口付近には人目を避けて近づけそうな物陰がある。",
       "banter_observation": "荷箱の一部だけが新しく濡れている。",
       "npcs": [],
       "visible_objects": [
@@ -125,7 +190,7 @@
         "岬の道",
         "崖道"
       ],
-      "intro": "港から灯台へ続く細い崖道。嵐で崩れた石が散っている。",
+      "intro": "港から灯台へ続く細い崖道。嵐で崩れた石が散り、北側の切り立った崖は登れそうにも見えるがかなり危険だ。泥には古い足跡のような痕跡も残っている。",
       "banter_observation": "崖道には灯台へ向かう足跡と戻る足跡が入り混じっている。",
       "npcs": [],
       "visible_objects": [
@@ -189,7 +254,7 @@
         "海岸",
         "岩場の海岸"
       ],
-      "intro": "岬の下の岩場。潮が引き、小さな海蝕洞の入口が見えている。",
+      "intro": "岬の下の岩場。潮が引き、小さな海蝕洞の入口が見えている。波打ち際には漂着物が散乱し、砂と泥の境目に何者かの足跡が途切れ途切れに残っている。",
       "banter_observation": "岩場には昨夜の高波の跡が残っている。",
       "npcs": [
         "boy"
@@ -256,7 +321,7 @@
       "aliases": [
         "村長"
       ],
-      "banter_observation": "村長は灯台の灯が消えたことを強く恐れている。",
+      "banter_observation": "村長は灯台の灯が消えたことを強く恐れているが、倉庫の話になると一瞬だけ視線をそらす。",
       "location": "harbor",
       "availability": "available",
       "location_hint": "港にいるはずだ。",
@@ -295,7 +360,7 @@
         "漁師",
         "バロ"
       ],
-      "banter_observation": "漁師は昨夜の青い光を気にしている。",
+      "banter_observation": "漁師は昨夜の青い光を気にしており、問い詰められるより落ち着いて頼まれる方が話しやすそうだ。",
       "location": "tavern",
       "availability": "available",
       "location_hint": "酒場にいるはずだ。",
@@ -331,7 +396,7 @@
         "少年",
         "ノア"
       ],
-      "banter_observation": "少年は岩場の方をちらちら見ている。",
+      "banter_observation": "少年は岩場の方をちらちら見ていて、近づき方によっては慌てて口をつぐみそうだ。",
       "location": "rocky_shore",
       "availability": "available",
       "location_hint": "岩場の海岸にいるはずだ。",
@@ -371,7 +436,7 @@
         "レナ",
         "灯台助手"
       ],
-      "banter_observation": "助手は鍵束を握りしめている。",
+      "banter_observation": "助手は鍵束を握りしめ、何かを隠しているように唇を固く結んでいる。",
       "location": "lighthouse_entrance",
       "availability": "available",
       "location_hint": "灯台入口にいるはずだ。",
@@ -1170,21 +1235,23 @@
       ]
     }
   },
-  "scenario_revision": "v2151_keeper_visibility_consistency",
+  "scenario_revision": "v2160_free_action_friendly_scenario",
   "meta": {
-    "authoring_revision": "v2.15.1",
+    "authoring_revision": "v2.16.0",
     "engine_requirements": {
       "npc_presence_guard": "v2.12.1a",
       "surface_public_separation": "v2.12.2b",
       "npc_knowledge": "v2.13.0",
       "ask_topic_resolver": "v2.14.1",
       "goal_intent_examples": "v2.15.0",
-      "keeper_visibility_consistency": "v2.15.1"
+      "keeper_visibility_consistency": "v2.15.1",
+      "free_action_friendly_scenario": "v2.16.0"
     },
     "notes": [
       "NPCの所在地、知識、話題をGMノートとして明示する。",
       "発見条件はdiscoverable側に残し、NPC topics は「何について聞いたか」の解決に使う。",
-      "海蝕洞の導入では灯台守を視認済みにせず、解決条件成立時の発見・救出描写と整合させる。"
+      "海蝕洞の導入では灯台守を視認済みにせず、解決条件成立時の発見・救出描写と整合させる。",
+      "自由行動を誘発する風景情報と、部分成功を活かせる段階的な判定余地を各所に置く。"
     ],
     "expectation_policy": "state/log anchors only; avoid LLM narrative wording"
   }
