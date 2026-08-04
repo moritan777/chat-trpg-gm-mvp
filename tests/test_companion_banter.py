@@ -74,6 +74,44 @@ class CompanionBanterTests(unittest.TestCase):
             packet = game.packet({"raw": raw, "action_type": "inspect"}, [], state)
             self.assertFalse(packet["conversation_diagnostics"]["playfulInput"], raw)
 
+    def test_playful_input_debug_log_explains_existing_classification(self):
+        game = self.make_game()
+        game.debug_llm = True
+        state = State("harbor")
+
+        with redirect_stdout(io.StringIO()) as output:
+            game.packet({"raw": "酒盛りしよう", "action_type": "area_search"}, [], state)
+
+        self.assertIn("[PlayfulInput]", output.getvalue())
+        self.assertIn("value=false", output.getvalue())
+        self.assertIn("reason=no_marker_match", output.getvalue())
+
+    def test_unaddressed_consult_intent_is_coerced_to_area_search_but_keeps_raw_input(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.embedded_action_intent = lambda raw, allowed=None: ("consult", "embedding")
+
+        intent = game.judge("酒盛りしよう", state)
+        packet = game.packet(intent, [], state)
+
+        self.assertEqual(intent["action_type"], "area_search")
+        self.assertIsNone(intent["target_id"])
+        self.assertEqual(intent["raw"], "酒盛りしよう")
+        self.assertEqual(packet["current_event"]["player_input"], "酒盛りしよう")
+
+    def test_group_address_routes_dance_to_companion_consult_without_playful_flag(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.embedded_action_intent = lambda raw, allowed=None: ("inspect", "embedding")
+
+        intent = game.judge("みんなで踊って", state)
+        packet = game.packet(intent, [], state)
+
+        self.assertEqual(intent["action_type"], "consult")
+        self.assertEqual(intent["target_id"], "companion:全員")
+        self.assertFalse(packet["conversation_diagnostics"]["playfulInput"])
+        self.assertEqual(packet["current_event"]["player_input"], "みんなで踊って")
+
     def test_prompt_limits_playful_mode_and_balances_kuro_and_garan(self):
         prompt = self.make_game().companion_banter_prompt()
 
@@ -242,6 +280,8 @@ class CompanionBanterTests(unittest.TestCase):
             return output.getvalue()
 
         self.assertIn("[TABLE_TURN_TEMPERATURE] 0.9", render(True))
+        self.assertIn("[TABLE_PROMPT_USER_INPUT]\nランタンを見る", render(True))
+        self.assertIn("[TABLE_PROMPT_ACTION]\ninspect", render(True))
         self.assertIn(
             "[TABLE_TURN_TEMPERATURE] 1.0",
             render(True, {"TABLE_TURN_TEMPERATURE": "1.0"}),
@@ -251,6 +291,7 @@ class CompanionBanterTests(unittest.TestCase):
             render(True, {"GM_LINE_REWRITE_TEMPERATURE": "0.8"}),
         )
         self.assertNotIn("[TABLE_TURN_TEMPERATURE]", render(False))
+        self.assertNotIn("[TABLE_PROMPT_USER_INPUT]", render(False))
 
     def test_system_prompt_prioritizes_observation_without_weakening_discovery(self):
         game = self.make_game()

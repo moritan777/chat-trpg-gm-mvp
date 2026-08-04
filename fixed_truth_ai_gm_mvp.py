@@ -245,11 +245,11 @@ class Game:
     def recent_companion_lines(self, limit=5):
         return list(self.last_companion_turn.get("lines", []))[-limit:]
 
-    def playful_input(self, raw):
-        """Detect an intentionally silly table action without reclassifying normal play."""
+    def playful_input_diagnostic(self, raw):
+        """Return the existing playful classification and an audit reason."""
         text = unicodedata.normalize("NFKC", str(raw or "")).strip().lower()
         if not text:
-            return False
+            return False, "empty_input"
         # These concrete, deliberately absurd actions provide a stable fallback
         # when no separate diagnostic LLM is configured. The table-turn LLM still
         # receives both the original input and this explicit diagnostic.
@@ -257,7 +257,12 @@ class Game:
             "舐め", "なめる", "飛び込", "崖から落と", "全部飲", "一気飲み",
             "宝箱ある", "宝物ある", "秘密基地", "犯人ここ", "食べてみ",
         )
-        return any(marker in text for marker in playful_markers)
+        matched = next((marker for marker in playful_markers if marker in text), None)
+        return (True, "matched_marker:" + matched) if matched else (False, "no_marker_match")
+
+    def playful_input(self, raw):
+        """Detect an intentionally silly table action without reclassifying normal play."""
+        return self.playful_input_diagnostic(raw)[0]
 
     def recent_companion_topic_summary(self, limit=3):
         """Return frequent surface topics from the latest companion history."""
@@ -2096,9 +2101,16 @@ class Game:
             if location_changed
             else "現在の場面に自然につながる場合だけ参考にする。コピーや言い換え再出力は禁止。"
         )
+        playful_value, playful_reason = self.playful_input_diagnostic(it.get("raw", ""))
+        if self.debug_llm or self.debug:
+            print(
+                "[PlayfulInput]\n"
+                f"value={str(playful_value).lower()}\n"
+                f"reason={playful_reason}"
+            )
         packet = {
             "conversation_diagnostics": {
-                "playfulInput": self.playful_input(it.get("raw", "")),
+                "playfulInput": playful_value,
             },
             "current_event": {
                 "player_input": it.get("raw", ""),
@@ -2259,6 +2271,8 @@ class Game:
         }
         if self.debug_llm:
             print("[TABLE_TURN_TEMPERATURE]", body["temperature"])
+            print("[TABLE_PROMPT_USER_INPUT]\n" + str(it.get("raw", "")))
+            print("[TABLE_PROMPT_ACTION]\n" + str(it.get("action_type", "")))
             print("[TABLE_TURN_SYSTEM]\n" + system_prompt)
             print("[TABLE_TURN_USER]\n" + body["messages"][1]["content"])
 
