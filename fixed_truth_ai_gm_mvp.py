@@ -264,6 +264,25 @@ class Game:
         """Detect an intentionally silly table action without reclassifying normal play."""
         return self.playful_input_diagnostic(raw)[0]
 
+    def playful_input_diagnostic(self, raw):
+        """Return the existing playful classification and an audit reason."""
+        text = unicodedata.normalize("NFKC", str(raw or "")).strip().lower()
+        if not text:
+            return False, "empty_input"
+        # These concrete, deliberately absurd actions provide a stable fallback
+        # when no separate diagnostic LLM is configured. The table-turn LLM still
+        # receives both the original input and this explicit diagnostic.
+        playful_markers = (
+            "舐め", "なめる", "飛び込", "崖から落と", "全部飲", "一気飲み",
+            "宝箱ある", "宝物ある", "秘密基地", "犯人ここ", "食べてみ",
+        )
+        matched = next((marker for marker in playful_markers if marker in text), None)
+        return (True, "matched_marker:" + matched) if matched else (False, "no_marker_match")
+
+    def playful_input(self, raw):
+        """Detect an intentionally silly table action without reclassifying normal play."""
+        return self.playful_input_diagnostic(raw)[0]
+
     def recent_companion_topic_summary(self, limit=3):
         """Return frequent surface topics from the latest companion history."""
         counts = {}
@@ -884,6 +903,9 @@ class Game:
             "consult": [
                 "仲間に相談する", "仲間の意見を聞く", "どう思うか聞く", "気づいたことがないか尋ねる", "助言を求める",
             ],
+            "action": [
+                "今日はどうする？", "ありがとう", "疲れた", "怖くなってきた", "酒盛りしよう", "踊ろう",
+            ],
             "skill_check": [
                 "詳しく解析する", "判定する", "技術的に分析する", "知識を使って読み解く", "能力を使って調べる",
             ],
@@ -906,7 +928,7 @@ class Game:
             return "ask", "lexical"
         if any(x in raw for x in ["周辺", "周囲", "あたり", "辺り", "この辺"]) and any(x in raw for x in ["調べ", "探", "見回", "見渡"]):
             return "area_search", "lexical"
-        return "inspect", "lexical"
+        return "action", "lexical"
 
     def embedded_action_intent(self, raw, allowed=None):
         intents = self.action_intent_examples()
@@ -944,12 +966,13 @@ class Game:
             "skill_check": 60,
             "resolve_goal": 50,
             "inspect": 40,
+            "action": 30,
         }
         close = [(score, name) for score, name in scores if best_score - score <= tie_margin]
         if best_score >= threshold:
             selected = max(close, key=lambda x: (priority.get(x[1], 0), x[0]))[1]
         else:
-            selected = "inspect" if (not allowed or "inspect" in allowed) else allowed[0]
+            selected = "action" if not allowed else ("inspect" if "inspect" in allowed else allowed[0])
         if self.debug:
             parts = " ".join(f"{name}={score:.3f}" for score, name in scores[:5])
             close_parts = ",".join(f"{name}:{score:.3f}" for score, name in close)
@@ -1202,10 +1225,13 @@ class Game:
                     target_id = self.target(raw, action_type, st) or preliminary_target
             else:
                 action_type, mode = self.embedded_action_intent(raw)
-                # Do not allow consult unless a companion target was actually found.
-                if action_type == "consult":
-                    action_type = "area_search"
-                target_id = None if action_type == "area_search" else self.target(raw, action_type, st)
+                target_id = self.target(raw, action_type, st)
+                # A consult requires an explicit companion target. Preserve
+                # targetless input as a generic action instead of inventing a search.
+                if action_type == "consult" and target_id is None:
+                    action_type = "action"
+                if action_type == "area_search":
+                    target_id = None
                 action_type = self.refine_action_with_target(action_type, target_id)
         if self.debug:
             if explicit_target:

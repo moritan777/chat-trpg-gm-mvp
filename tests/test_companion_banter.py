@@ -86,7 +86,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("value=false", output.getvalue())
         self.assertIn("reason=no_marker_match", output.getvalue())
 
-    def test_unaddressed_consult_intent_is_coerced_to_area_search_but_keeps_raw_input(self):
+    def test_unaddressed_consult_intent_becomes_generic_action_and_keeps_raw_input(self):
         game = self.make_game()
         state = State("harbor")
         game.embedded_action_intent = lambda raw, allowed=None: ("consult", "embedding")
@@ -94,7 +94,7 @@ class CompanionBanterTests(unittest.TestCase):
         intent = game.judge("酒盛りしよう", state)
         packet = game.packet(intent, [], state)
 
-        self.assertEqual(intent["action_type"], "area_search")
+        self.assertEqual(intent["action_type"], "action")
         self.assertIsNone(intent["target_id"])
         self.assertEqual(intent["raw"], "酒盛りしよう")
         self.assertEqual(packet["current_event"]["player_input"], "酒盛りしよう")
@@ -111,6 +111,52 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertEqual(intent["target_id"], "companion:全員")
         self.assertFalse(packet["conversation_diagnostics"]["playfulInput"])
         self.assertEqual(packet["current_event"]["player_input"], "みんなで踊って")
+
+    def test_targetless_free_inputs_use_existing_generic_action_route(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.get_embeddings = lambda texts: None
+
+        for raw in (
+            "今日はどうする？",
+            "誰か案ある？",
+            "いったん整理しよう",
+            "怖くなってきた",
+            "疲れた",
+            "帰りたい",
+            "ありがとう",
+            "酒盛りしよう",
+        ):
+            with self.subTest(raw=raw):
+                intent = game.judge(raw, state)
+                notes, result, events = game.resolve(intent, state)
+                self.assertEqual(intent["action_type"], "action")
+                self.assertIsNone(intent["target_id"])
+                self.assertEqual(result, {"status": "ok", "category": "action"})
+                self.assertEqual(events, [])
+                self.assertNotIn("周囲を見渡し", "\n".join(notes))
+
+    def test_low_confidence_embedding_uses_generic_action_without_target_constraints(self):
+        game = self.make_game()
+        game.get_embeddings = lambda texts: [[1.0, 0.0]] + [[0.0, 1.0]] * (len(texts) - 1)
+
+        action_type, mode = game.embedded_action_intent("分類不能な自由入力")
+
+        self.assertEqual((action_type, mode), ("action", "embedding"))
+
+    def test_explicit_companion_consults_keep_consult_route(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.get_embeddings = lambda texts: None
+
+        for raw, target in (
+            ("みんなどう思う？", "companion:全員"),
+            ("ガランに相談する", "companion:ガラン"),
+        ):
+            with self.subTest(raw=raw):
+                intent = game.judge(raw, state)
+                self.assertEqual(intent["action_type"], "consult")
+                self.assertEqual(intent["target_id"], target)
 
     def test_prompt_limits_playful_mode_and_balances_kuro_and_garan(self):
         prompt = self.make_game().companion_banter_prompt()
