@@ -1346,6 +1346,106 @@ class Game:
             return False
         return action_type in {"action", "inspect", "skill_check", "move"}
 
+    def infer_generic_skill_action(self, raw):
+        """Infer a standard skill for free-form actions that no scenario route handled."""
+        text = self.normalize_action_example(raw)
+        patterns = (
+            (
+                "athletics",
+                "運動",
+                "身体を使って強引に状況を切り開こうとしています。",
+                ("登", "走", "飛", "跳", "越え", "持ち上げ", "動か", "押", "引", "投げ", "運ぶ", "泳", "よじ"),
+            ),
+            (
+                "survival",
+                "生存",
+                "周囲の環境を読み取りながら行動します。",
+                ("足跡", "追う", "たど", "辿", "ロープ跡", "海岸", "探索", "飲む", "食べ", "火を起こ", "野営"),
+            ),
+            (
+                "persuasion",
+                "説得",
+                "相手の反応を見ながら言葉で状況を動かそうとしています。",
+                ("説得", "頼み", "ごまか", "誤魔化", "聞き出", "交渉", "言いくるめ", "なだめ", "脅", "お願い"),
+            ),
+            (
+                "stealth",
+                "隠密",
+                "気配を抑えて慎重に行動します。",
+                ("忍び", "隠れ", "隠れる", "気付かれない", "気づかれない", "こっそり", "密か", "身を隠", "様子を見る"),
+            ),
+            (
+                "investigation",
+                "調査",
+                "対象や周囲を詳しく観察し、手掛かりを探します。",
+                ("詳しく", "調べ", "分析", "手掛かり", "手がかり", "痕跡", "探す", "探し", "観察", "確認", "覗", "見る"),
+            ),
+        )
+        hits = []
+        for priority, (skill, label, description, keywords) in enumerate(patterns):
+            matched = [keyword for keyword in keywords if keyword in text]
+            if matched:
+                hits.append((len(matched), -priority, skill, label, description))
+        if not hits:
+            return None
+        _count, _priority, skill, label, description = max(hits)
+        return {"skill": skill, "label": label, "description": description}
+
+    def should_route_generic_skill_action(self, action_type, target_id):
+        if target_id is not None:
+            return False
+        return action_type in {"action", "inspect", "skill_check", "move"}
+
+    def infer_generic_skill_action(self, raw):
+        """Infer a standard skill for free-form actions that no scenario route handled."""
+        text = self.normalize_action_example(raw)
+        patterns = (
+            (
+                "athletics",
+                "運動",
+                "身体を使って強引に状況を切り開こうとしています。",
+                ("登", "走", "飛", "跳", "越え", "持ち上げ", "動か", "押", "引", "投げ", "運ぶ", "泳", "よじ"),
+            ),
+            (
+                "survival",
+                "生存",
+                "周囲の環境を読み取りながら行動します。",
+                ("足跡", "追う", "たど", "辿", "ロープ跡", "海岸", "探索", "飲む", "食べ", "火を起こ", "野営"),
+            ),
+            (
+                "persuasion",
+                "説得",
+                "相手の反応を見ながら言葉で状況を動かそうとしています。",
+                ("説得", "頼み", "ごまか", "誤魔化", "聞き出", "交渉", "言いくるめ", "なだめ", "脅", "お願い"),
+            ),
+            (
+                "stealth",
+                "隠密",
+                "気配を抑えて慎重に行動します。",
+                ("忍び", "隠れ", "隠れる", "気付かれない", "気づかれない", "こっそり", "密か", "身を隠", "様子を見る"),
+            ),
+            (
+                "investigation",
+                "調査",
+                "対象や周囲を詳しく観察し、手掛かりを探します。",
+                ("詳しく", "調べ", "分析", "手掛かり", "手がかり", "痕跡", "探す", "探し", "観察", "確認", "覗", "見る"),
+            ),
+        )
+        hits = []
+        for priority, (skill, label, description, keywords) in enumerate(patterns):
+            matched = [keyword for keyword in keywords if keyword in text]
+            if matched:
+                hits.append((len(matched), -priority, skill, label, description))
+        if not hits:
+            return None
+        _count, _priority, skill, label, description = max(hits)
+        return {"skill": skill, "label": label, "description": description}
+
+    def should_route_generic_skill_action(self, action_type, target_id):
+        if target_id is not None:
+            return False
+        return action_type in {"action", "inspect", "skill_check", "move"}
+
     def move(self, target_id, st):
         if target_id in self.locs and target_id in self.locs[st.location].get("exits", []):
             st.location = target_id
