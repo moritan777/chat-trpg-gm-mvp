@@ -106,8 +106,29 @@ def main():
         check_skill_check(action.get('skill_check'), f'action_check {aid}')
         if action.get('required_location') and action.get('required_location') not in locs:
             errors.append(f'action_check {aid} required_location unknown: {action.get("required_location")}')
-        for effect_name in ('success_effect', 'failure_effect'):
-            effect = action.get(effect_name, {}) or {}
+        effect_fields = ['success_effect', 'failure_effect']
+        for outcome_name in (
+            'on_critical_success',
+            'on_success',
+            'on_partial_success',
+            'on_failure',
+            'on_critical_failure',
+        ):
+            outcome = action.get(outcome_name, {}) or {}
+            if outcome and not isinstance(outcome, dict):
+                errors.append(f'action_check {aid} {outcome_name} must be object')
+                continue
+            if outcome.get('effect') is not None:
+                effect_fields.append(f'{outcome_name}.effect')
+        for effect_name in effect_fields:
+            if '.effect' in effect_name:
+                outcome_name = effect_name.split('.', 1)[0]
+                effect = (action.get(outcome_name, {}) or {}).get('effect', {}) or {}
+            else:
+                effect = action.get(effect_name, {}) or {}
+            if effect and not isinstance(effect, dict):
+                errors.append(f'action_check {aid} {effect_name} must be object')
+                continue
             destination = effect.get('move_to', effect.get('moves_to'))
             if destination and destination not in locs:
                 errors.append(f'action_check {aid} {effect_name} move_to unknown: {destination}')
