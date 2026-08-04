@@ -2275,6 +2275,48 @@ class Game:
         """Add only the GM prefix; do not rewrite authored discovery content."""
         return [text if text.startswith("GM:") else "GM: " + text for text in self.official_discovery_texts(ev)]
 
+    @staticmethod
+    def semantic_coverage_terms(text):
+        """Return stable surface terms for checking whether a discovery was rendered.
+
+        This intentionally avoids exact full-string matching because the LLM can
+        rewrite official discovery prose while preserving its content.
+        """
+        normalized = unicodedata.normalize("NFKC", str(text or ""))
+        normalized = re.sub(r"^GM[:：]\s*", "", normalized)
+        terms = [
+            term
+            for term in re.split(r"[\s\u3000、。,.!?！？『』「」（）()]+|(?:は|が|を|に|で|と|の|へ|から|まで|より|も|や|だ|だった|でした|して|した|する|いる|いた)", normalized)
+            if len(term) >= 2
+        ]
+        compact = re.sub(r"[\s\u3000、。,.!?！？『』「」（）()：:]+", "", normalized)
+        compact = re.sub(r"^GM", "", compact)
+        bigrams = [compact[index:index + 2] for index in range(max(len(compact) - 1, 0))]
+        return [term for term in dict.fromkeys(terms + bigrams) if len(term) >= 2]
+
+    def discovery_line_is_integrated(self, official_line, gm_rendered):
+        """Heuristically detect whether rewritten GM prose already carries a discovery.
+
+        The check is based on surface term coverage rather than exact string
+        equality, so minor LLM wording changes do not force a duplicate official
+        line while missing discoveries still get inserted verbatim afterward.
+        """
+        terms = self.semantic_coverage_terms(official_line)
+        if not terms:
+            return False
+        rendered_text = "\n".join(str(line) for line in gm_rendered)
+        rendered_terms = set(self.semantic_coverage_terms(rendered_text))
+        matched = sum(1 for term in terms if term in rendered_terms or term in rendered_text)
+        coverage = matched / len(terms)
+        threshold = float(os.getenv("DISCOVERY_INTEGRATION_COVERAGE", "0.62"))
+        return coverage >= threshold
+
+    def missing_official_gm_lines(self, official_gm_lines, gm_rendered):
+        return [
+            line for line in official_gm_lines
+            if not self.discovery_line_is_integrated(line, gm_rendered)
+        ]
+
     def companion_surface_observations(self, target_id):
         """Return only pre-authored, visible material for companion context.
 
@@ -2641,9 +2683,11 @@ class Game:
             new_notes = [line for line in new_notes if not (isinstance(line, str) and line.startswith("発見:"))]
 
         insert_at = first + len(gm_rendered)
+        official_lines_to_insert = official_gm_lines
         if discovery_display in {"gm", "both"} and official_gm_lines:
-            new_notes[insert_at:insert_at] = official_gm_lines
-            insert_at += len(official_gm_lines)
+            official_lines_to_insert = self.missing_official_gm_lines(official_gm_lines, gm_rendered)
+            new_notes[insert_at:insert_at] = official_lines_to_insert
+            insert_at += len(official_lines_to_insert)
         while insert_at < len(new_notes):
             line = new_notes[insert_at]
             if isinstance(line, str) and line.startswith(("発見:", "判定:", "結果:", "補正:", "[")):
@@ -2653,7 +2697,13 @@ class Game:
         if companion_rendered:
             new_notes[insert_at:insert_at] = companion_rendered
 
-        self.last_table_turn = {"canonical_gm": canonical_gm, "output": out, "packet": packet}
+        self.last_table_turn = {
+            "canonical_gm": canonical_gm,
+            "output": out,
+            "packet": packet,
+            "official_gm_lines": official_gm_lines,
+            "official_gm_lines_inserted": official_lines_to_insert,
+        }
         self.observe_companion_turn(companion_rendered, it)
         self.remember_companion_turn(companion_rendered, it, st)
         self.debug_companion_history("CompanionHistoryAfter")

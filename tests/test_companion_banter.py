@@ -1002,6 +1002,62 @@ class CompanionBanterTests(unittest.TestCase):
                     else:
                         self.assertIn("発見: " + public_text, rendered)
 
+
+    def test_integrated_official_discovery_is_not_inserted_twice(self):
+        game = self.make_game()
+        state = State("harbor")
+        public_text = game.disc["head_report"]["public_text"]
+        captured = []
+
+        def fake_post_json(url, body, timeout, tag):
+            captured.append(json.loads(body["messages"][1]["content"]))
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "GM: 村長は、灯が消える直前に倉庫で人影を見たと重く語る。"
+                        }
+                    }
+                ]
+            }
+
+        game.post_json = fake_post_json
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp", "DISCOVERY_DISPLAY": "gm"}):
+            rendered, _ = game.render_table_turn(
+                ["GM: 村長に話を聞いた。", "発見: " + public_text],
+                {"raw": "村長に聞く", "action_type": "ask", "target_id": "village_head"},
+                {"status": "ok", "category": "discoverable"},
+                [{"type": "discoverable_revealed", "id": "head_report"}], state,
+            )
+
+        self.assertEqual(captured[0]["discovery_log_lines_for_context"], ["発見: " + public_text])
+        self.assertEqual(
+            rendered,
+            ["GM: 村長は、灯が消える直前に倉庫で人影を見たと重く語る。"],
+        )
+        self.assertEqual(game.last_table_turn["official_gm_lines"], ["GM: " + public_text])
+        self.assertEqual(game.last_table_turn["official_gm_lines_inserted"], [])
+
+    def test_missing_official_discovery_is_still_inserted_after_rewrite(self):
+        game = self.make_game()
+        state = State("harbor")
+        public_text = game.disc["head_report"]["public_text"]
+        game.post_json = lambda url, body, timeout, tag: {
+            "choices": [{"message": {"content": "GM: 村長は少し考えてから口を開いた。"}}]
+        }
+
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp", "DISCOVERY_DISPLAY": "gm"}):
+            rendered, _ = game.render_table_turn(
+                ["GM: 村長に話を聞いた。", "発見: " + public_text],
+                {"raw": "村長に聞く", "action_type": "ask", "target_id": "village_head"},
+                {"status": "ok", "category": "discoverable"},
+                [{"type": "discoverable_revealed", "id": "head_report"}], state,
+            )
+
+        official_line = "GM: " + public_text
+        self.assertEqual(rendered, ["GM: 村長は少し考えてから口を開いた。", official_line])
+        self.assertEqual(game.last_table_turn["official_gm_lines_inserted"], [official_line])
+
     def test_tag_display_retains_separate_discovery_context_without_gm_repetition_instruction(self):
         game = self.make_game()
         state = State("light_room")
