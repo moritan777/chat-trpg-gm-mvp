@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.20.0
+Chat-style TTRPG GM MVP v2.21.0
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -23,7 +23,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.20.0 [generic-skill-actions]"
+VERSION = "v2.21.0 [skill-result-consequences]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -1242,6 +1242,7 @@ class Game:
                 "target_id": None,
                 "intent_mode": "generic-skill-action",
                 "skill": generic_skill["skill"],
+                "action_text": raw,
             }
         return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
 
@@ -1294,6 +1295,56 @@ class Game:
         """Normalize author-provided examples without adding game-specific words."""
         normalized = unicodedata.normalize("NFKC", str(text)).casefold()
         return re.sub(r"[\s\u3000、。,.!?！？]+", "", normalized)
+
+    def infer_generic_skill_action(self, raw):
+        """Infer a standard skill for free-form actions that no scenario route handled."""
+        text = self.normalize_action_example(raw)
+        patterns = (
+            (
+                "athletics",
+                "運動",
+                "身体を使って強引に状況を切り開こうとしています。",
+                ("登", "走", "飛", "跳", "越え", "持ち上げ", "動か", "押", "引", "投げ", "運ぶ", "泳", "よじ"),
+            ),
+            (
+                "survival",
+                "生存",
+                "周囲の環境を読み取りながら行動します。",
+                ("足跡", "追う", "たど", "辿", "ロープ跡", "海岸", "探索", "飲む", "食べ", "火を起こ", "野営"),
+            ),
+            (
+                "persuasion",
+                "説得",
+                "相手の反応を見ながら言葉で状況を動かそうとしています。",
+                ("説得", "頼み", "ごまか", "誤魔化", "聞き出", "交渉", "言いくるめ", "なだめ", "脅", "お願い"),
+            ),
+            (
+                "stealth",
+                "隠密",
+                "気配を抑えて慎重に行動します。",
+                ("忍び", "隠れ", "隠れる", "気付かれない", "気づかれない", "こっそり", "密か", "身を隠", "様子を見る"),
+            ),
+            (
+                "investigation",
+                "調査",
+                "対象や周囲を詳しく観察し、手掛かりを探します。",
+                ("詳しく", "調べ", "分析", "手掛かり", "手がかり", "痕跡", "探す", "探し", "観察", "確認", "覗", "見る"),
+            ),
+        )
+        hits = []
+        for priority, (skill, label, description, keywords) in enumerate(patterns):
+            matched = [keyword for keyword in keywords if keyword in text]
+            if matched:
+                hits.append((len(matched), -priority, skill, label, description))
+        if not hits:
+            return None
+        _count, _priority, skill, label, description = max(hits)
+        return {"skill": skill, "label": label, "description": description}
+
+    def should_route_generic_skill_action(self, action_type, target_id):
+        if target_id is not None:
+            return False
+        return action_type in {"action", "inspect", "skill_check", "move"}
 
     def infer_generic_skill_action(self, raw):
         """Infer a standard skill for free-form actions that no scenario route handled."""
@@ -1770,6 +1821,16 @@ class Game:
         }.get(rank, ["GM: 成功です。"])
 
     @staticmethod
+    def result_rank_key(rank):
+        return {
+            "CriticalSuccess": "critical_success",
+            "Success": "success",
+            "PartialSuccess": "partial_success",
+            "Failure": "failure",
+            "CriticalFailure": "critical_failure",
+        }.get(rank, str(rank or "").lower())
+
+    @staticmethod
     def default_outcome_rank(rank):
         """Map five-level ranks to existing binary outcomes for compatibility."""
         if rank in {"CriticalSuccess", "Success"}:
@@ -1855,8 +1916,8 @@ class Game:
         return lines, {"status": "ok" if outcome_success else "fail", "category": "action_skill_check", "check_id": check_event.get("id"), "result_rank": rank, "outcome_rank": outcome_rank}, events
 
     def resolve_generic_skill_action(self, it, st):
-        raw = str(it.get("raw", "")).strip() or "自由行動"
-        inferred = self.infer_generic_skill_action(raw) or {
+        action_text = str(it.get("action_text") or it.get("raw", "")).strip() or "自由行動"
+        inferred = self.infer_generic_skill_action(action_text) or {
             "skill": it.get("skill", "investigation"),
             "label": self.skill_display_name(it.get("skill", "investigation")),
             "description": "行動の成否を技能判定で確認します。",
@@ -1868,9 +1929,10 @@ class Game:
         total = base + modifier
         difficulty = int(os.getenv("GENERIC_SKILL_ACTION_DIFFICULTY", "8"))
         rank = self.check_result_rank(total, difficulty)
+        rank_key = self.result_rank_key(rank)
         success = total >= difficulty
         lines = [
-            f"GM: {raw}としているんだね。",
+            f"GM: {action_text}としているんだね。",
             f"GM: {inferred['description']}",
             f"【{inferred['label']}判定】",
             f"{notation} + {skill}",
@@ -1885,13 +1947,28 @@ class Game:
             "CriticalFailure": "GM: 行動は裏目に出て、状況が少し悪くなります。",
         }
         lines.append(outcome_lines.get(rank, outcome_lines["Failure"]))
+        consequence = {
+            "type": "generic_skill_action",
+            "action_text": action_text,
+            "skill": skill,
+            "roll": total,
+            "dice_roll": base,
+            "target": difficulty,
+            "difficulty": difficulty,
+            "rank": rank_key,
+            "result_rank": rank,
+        }
         return lines, {
             "status": "ok" if success or rank == "PartialSuccess" else "fail",
             "category": "generic_skill_action",
+            "action_text": action_text,
             "skill": skill,
+            "roll": total,
+            "target": difficulty,
             "difficulty": difficulty,
+            "rank": rank_key,
             "result_rank": rank,
-        }, []
+        }, [consequence]
 
 
     def first_revealable_in_area(self, st):
@@ -2369,6 +2446,21 @@ class Game:
                 "requested_companions": requested,
                 "previous_companion_lines": self.recent_companion_lines() if include_history else [],
             }
+        generic_events = [
+            event for event in (ev or [])
+            if isinstance(event, dict) and event.get("type") == "generic_skill_action"
+        ]
+        if it.get("action_type") == "generic_skill_action" or generic_events:
+            latest = generic_events[-1] if generic_events else {}
+            packet["generic_skill_action"] = {
+                "type": "generic_skill_action",
+                "action_text": latest.get("action_text", it.get("action_text", it.get("raw", ""))),
+                "skill": latest.get("skill", it.get("skill")),
+                "rank": latest.get("rank"),
+                "result_rank": latest.get("result_rank"),
+                "roll": latest.get("roll"),
+                "target": latest.get("target", latest.get("difficulty")),
+            }
         return packet
 
     def render_table_turn(self, notes, it, res, ev, st):
@@ -2474,6 +2566,39 @@ class Game:
                 "GM本文は確定事実と中立的な観察だけを扱い、未定義の重要度評価や攻略評価を加えない。",
             ],
         }
+        if res.get("category") == "generic_skill_action":
+            packet["skill_result_consequence"] = {
+                "type": "generic_skill_action",
+                "action_text": res.get("action_text", it.get("action_text", it.get("raw", ""))),
+                "skill": res.get("skill", it.get("skill")),
+                "roll": res.get("roll"),
+                "target": res.get("target", res.get("difficulty")),
+                "rank": res.get("rank", self.result_rank_key(res.get("result_rank"))),
+                "result_rank": res.get("result_rank"),
+                "rank_guide": {
+                    "CriticalSuccess": "期待以上の成果",
+                    "Success": "意図した成果",
+                    "PartialSuccess": "成果はあるが制約あり",
+                    "Failure": "成果なし",
+                    "CriticalFailure": "状況悪化や失敗演出",
+                },
+                "constraints": [
+                    "世界の変化や見え方を描写する。",
+                    "成功／失敗だけを繰り返さない。",
+                    "新ルールを作らない。",
+                    "HP、疲労、時間経過、ダメージ、戦闘、状態異常は変更しない。",
+                ],
+            }
+
+        skill_result_prompt = ""
+        if res.get("category") == "generic_skill_action":
+            skill_result_prompt = (
+                "【技能判定結果が存在する場合】行動内容と判定結果から自然な結果を描写する。"
+                "世界の変化や見え方を描写し、成功／失敗だけを繰り返さない。"
+                "新ルールを作らず、HP、疲労、時間経過、ダメージ、戦闘、状態異常は変更しない。"
+                "ランク参考: CriticalSuccess=期待以上、Success=意図通り、"
+                "PartialSuccess=成果はあるが制約あり、Failure=成果なし、CriticalFailure=状況悪化演出。\n\n"
+            )
 
         system_prompt = (
             "あなたはチャット型TRPGリプレイの1ターン描写を整えるレンダラー。\n"
@@ -2484,6 +2609,8 @@ class Game:
             "Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない。"
             "会話NPCを秘密抜きで風景に描き、一覧にしない。"
             "仲間への直接の依頼では本人の反応をGM本文で先回りしない。\n\n"
+            + skill_result_prompt
+            +
             "【仲間への入力・必須】safe_banter_packetを情報境界とする。"
             "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move なら重要な手掛かりがあるふりをしない。\n\n"
             + self.companion_banter_prompt()
