@@ -332,6 +332,45 @@ Discoverable は手掛かりです。
 理由や周囲の危険を、結果を先取りせずに記述してください。省略した場合は
 「この行動が成功するか判定します。」という共通説明が表示されます。
 
+判定結果の5段階ランクをシナリオに反映したい場合は、判定イベントに任意で
+`on_critical_success`、`on_success`、`on_partial_success`、`on_failure`、
+`on_critical_failure` を追加できます。各項目には `text` と `effect` を指定できます。
+未指定のランクは既存互換のため、`CriticalSuccess` は通常成功、`PartialSuccess` と
+`CriticalFailure` は通常失敗の `text` / `effect` にフォールバックします。
+
+```json
+{
+  "id": "read_weathered_sign",
+  "required_location": "old_road",
+  "positive_examples": ["古い標識を読む", "標識を調べる"],
+  "skill_check": {
+    "skill": "investigation",
+    "dice": "2d6",
+    "difficulty": 8
+  },
+  "on_critical_success": {
+    "text": "標識の文字だけでなく、裏面の小さな刻印にも気づいた。",
+    "effect": {"event": {"type": "rank_outcome", "rank": "CriticalSuccess"}}
+  },
+  "on_success": {
+    "text": "標識の文字を読み取った。",
+    "effect": {"event": {"type": "rank_outcome", "rank": "Success"}}
+  },
+  "on_partial_success": {
+    "text": "標識の文字を一部だけ読み取った。",
+    "effect": {"event": {"type": "rank_outcome", "rank": "PartialSuccess"}}
+  },
+  "on_failure": {
+    "text": "標識の文字は読み取れなかった。",
+    "effect": {"event": {"type": "rank_outcome", "rank": "Failure"}}
+  },
+  "on_critical_failure": {
+    "text": "標識を読み違え、誤った方角に確信を持ってしまった。",
+    "effect": {"event": {"type": "rank_outcome", "rank": "CriticalFailure"}}
+  }
+}
+```
+
 標準技能キーは `investigation`、`survival`、`persuasion`、`athletics`、`stealth`
 です。今回の汎用判定は移動 (`move_to`) と足止め (`delay`) を扱い、HP、負傷、毒などの
 状態異常や戦闘処理は扱いません。

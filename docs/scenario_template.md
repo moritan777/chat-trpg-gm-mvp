@@ -66,6 +66,8 @@ Chat TTRPG GM MVP シナリオテンプレート
 
 &#x20; "discoverables": \[],
 
+&#x20; "action\_checks": \[],
+
 &#x20; "goals": \[],
 
 &#x20; "tests": {}
