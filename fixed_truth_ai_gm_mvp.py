@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.19.0
+Chat-style TTRPG GM MVP v2.20.0
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -23,7 +23,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.19.0 [ranked-check-outcomes]"
+VERSION = "v2.20.0 [generic-skill-actions]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -1229,6 +1229,20 @@ class Game:
                     f"\nkind={explicit_kind}\naction={action_type}\ndecision=selected"
                 )
             print(f"[ActionRoute] input={raw} route={mode} action={action_type} target={target_id}")
+        generic_skill = self.infer_generic_skill_action(raw)
+        if generic_skill and self.should_route_generic_skill_action(action_type, target_id):
+            if self.debug:
+                print(
+                    f"[GenericSkillActionRoute]\ninput={raw}"
+                    f"\nskill={generic_skill['skill']}\ndecision=selected"
+                )
+            return {
+                "raw": raw,
+                "action_type": "generic_skill_action",
+                "target_id": None,
+                "intent_mode": "generic-skill-action",
+                "skill": generic_skill["skill"],
+            }
         return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
 
     def match_action_check(self, raw, st=None):
@@ -1280,6 +1294,56 @@ class Game:
         """Normalize author-provided examples without adding game-specific words."""
         normalized = unicodedata.normalize("NFKC", str(text)).casefold()
         return re.sub(r"[\s\u3000、。,.!?！？]+", "", normalized)
+
+    def infer_generic_skill_action(self, raw):
+        """Infer a standard skill for free-form actions that no scenario route handled."""
+        text = self.normalize_action_example(raw)
+        patterns = (
+            (
+                "athletics",
+                "運動",
+                "身体を使って強引に状況を切り開こうとしています。",
+                ("登", "走", "飛", "跳", "越え", "持ち上げ", "動か", "押", "引", "投げ", "運ぶ", "泳", "よじ"),
+            ),
+            (
+                "survival",
+                "生存",
+                "周囲の環境を読み取りながら行動します。",
+                ("足跡", "追う", "たど", "辿", "ロープ跡", "海岸", "探索", "飲む", "食べ", "火を起こ", "野営"),
+            ),
+            (
+                "persuasion",
+                "説得",
+                "相手の反応を見ながら言葉で状況を動かそうとしています。",
+                ("説得", "頼み", "ごまか", "誤魔化", "聞き出", "交渉", "言いくるめ", "なだめ", "脅", "お願い"),
+            ),
+            (
+                "stealth",
+                "隠密",
+                "気配を抑えて慎重に行動します。",
+                ("忍び", "隠れ", "隠れる", "気付かれない", "気づかれない", "こっそり", "密か", "身を隠", "様子を見る"),
+            ),
+            (
+                "investigation",
+                "調査",
+                "対象や周囲を詳しく観察し、手掛かりを探します。",
+                ("詳しく", "調べ", "分析", "手掛かり", "手がかり", "痕跡", "探す", "探し", "観察", "確認", "覗", "見る"),
+            ),
+        )
+        hits = []
+        for priority, (skill, label, description, keywords) in enumerate(patterns):
+            matched = [keyword for keyword in keywords if keyword in text]
+            if matched:
+                hits.append((len(matched), -priority, skill, label, description))
+        if not hits:
+            return None
+        _count, _priority, skill, label, description = max(hits)
+        return {"skill": skill, "label": label, "description": description}
+
+    def should_route_generic_skill_action(self, action_type, target_id):
+        if target_id is not None:
+            return False
+        return action_type in {"action", "inspect", "skill_check", "move"}
 
     def move(self, target_id, st):
         if target_id in self.locs and target_id in self.locs[st.location].get("exits", []):
@@ -1790,6 +1854,45 @@ class Game:
         events = self.apply_action_check_effect(self.action_check_effect(check_event, outcome, outcome_rank), st)
         return lines, {"status": "ok" if outcome_success else "fail", "category": "action_skill_check", "check_id": check_event.get("id"), "result_rank": rank, "outcome_rank": outcome_rank}, events
 
+    def resolve_generic_skill_action(self, it, st):
+        raw = str(it.get("raw", "")).strip() or "自由行動"
+        inferred = self.infer_generic_skill_action(raw) or {
+            "skill": it.get("skill", "investigation"),
+            "label": self.skill_display_name(it.get("skill", "investigation")),
+            "description": "行動の成否を技能判定で確認します。",
+        }
+        skill = inferred["skill"]
+        notation = "2d6"
+        base = self.roll_dice(notation, skill=True)
+        modifier = self.skill_value(skill)
+        total = base + modifier
+        difficulty = int(os.getenv("GENERIC_SKILL_ACTION_DIFFICULTY", "8"))
+        rank = self.check_result_rank(total, difficulty)
+        success = total >= difficulty
+        lines = [
+            f"GM: {raw}としているんだね。",
+            f"GM: {inferred['description']}",
+            f"【{inferred['label']}判定】",
+            f"{notation} + {skill}",
+        ]
+        lines += self.format_skill_check(notation, base, modifier, 0, total, rank)
+        lines += self.result_rank_narration(rank)
+        outcome_lines = {
+            "CriticalSuccess": "GM: 目的を果たしたうえ、予想以上の手応えがあります。",
+            "Success": "GM: 目的は問題なく達成できます。",
+            "PartialSuccess": "GM: 目的には届きますが、少し不安や代償の残る結果です。",
+            "Failure": "GM: その行動はうまくいきません。",
+            "CriticalFailure": "GM: 行動は裏目に出て、状況が少し悪くなります。",
+        }
+        lines.append(outcome_lines.get(rank, outcome_lines["Failure"]))
+        return lines, {
+            "status": "ok" if success or rank == "PartialSuccess" else "fail",
+            "category": "generic_skill_action",
+            "skill": skill,
+            "difficulty": difficulty,
+            "result_rank": rank,
+        }, []
+
 
     def first_revealable_in_area(self, st):
         visible = list(self.locs[st.location].get("visible_objects", []))
@@ -2065,6 +2168,8 @@ class Game:
     def resolve(self, it, st):
         if it["action_type"] == "action_skill_check":
             return self.run_action_skill_check(it, st)
+        if it["action_type"] == "generic_skill_action":
+            return self.resolve_generic_skill_action(it, st)
         if it["action_type"] == "area_search":
             return self.area_search(it, st)
         if it["action_type"] == "consult":
