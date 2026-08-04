@@ -264,6 +264,25 @@ class Game:
         """Detect an intentionally silly table action without reclassifying normal play."""
         return self.playful_input_diagnostic(raw)[0]
 
+    def playful_input_diagnostic(self, raw):
+        """Return the existing playful classification and an audit reason."""
+        text = unicodedata.normalize("NFKC", str(raw or "")).strip().lower()
+        if not text:
+            return False, "empty_input"
+        # These concrete, deliberately absurd actions provide a stable fallback
+        # when no separate diagnostic LLM is configured. The table-turn LLM still
+        # receives both the original input and this explicit diagnostic.
+        playful_markers = (
+            "舐め", "なめる", "飛び込", "崖から落と", "全部飲", "一気飲み",
+            "宝箱ある", "宝物ある", "秘密基地", "犯人ここ", "食べてみ",
+        )
+        matched = next((marker for marker in playful_markers if marker in text), None)
+        return (True, "matched_marker:" + matched) if matched else (False, "no_marker_match")
+
+    def playful_input(self, raw):
+        """Detect an intentionally silly table action without reclassifying normal play."""
+        return self.playful_input_diagnostic(raw)[0]
+
     def recent_companion_topic_summary(self, limit=3):
         """Return frequent surface topics from the latest companion history."""
         counts = {}
