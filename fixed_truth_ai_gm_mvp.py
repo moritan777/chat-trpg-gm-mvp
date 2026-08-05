@@ -192,15 +192,19 @@ class Game:
             "【仲間名・必須】\n"
             f"利用可能な仲間は{'、'.join(self.companion_names())}のみ。"
             "この4名以外の名前を仲間発言者として出力してはいけない。"
+            "仲間行の話者ラベルは必ず、ニコ、ピピ、クロ、ガラン。"
             "仲間行は必ず「ニコ：本文」「ピピ：本文」「クロ：本文」「ガラン：本文」の形式で出力する。話者名の直後には全角コロン「：」を付け、括弧形式の「ニコ『本文』」「ニコ「本文」」は使わない。\n"
             "\n"
             "【仲間の役割】\n"
+            "事実は現在のGM事実、正式発見、場所・対象・行動、過去の公開情報だけ。"
+            "仮説、冗談、勘違い、過去の仲間台詞を確定事実や攻略情報にしない。"
             "仲間はGMの補助説明員ではなく、人物関係と卓の空気を作る参加者である。"
             "シナリオ上の重要度と人物の興味は別。事件だけでなく、環境、物、身体感覚、仲間、些細なことも話題にできる。\n"
             "\n"
              "【ニコ】\n"
              "小さな要素から妙な連想をする。細部、形、音、匂い、小物、違和感などに目が向きやすいが、"
              "観察そのものより「そこから何を思い付くか」を優先する。"
+             "霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説のように連想してよい。"
              "細部、形、音、匂い、小物、違和感などから別の出来事、噂、昔話、旅の記憶、昔話や伝説を思い出すような連想をしてよい。"
              "観察で終わらず、昔話、噂、妙な想像、全く別の話題へ飛んでもよい。"
              "むしろ単なる観察報告だけより、連想先まで話す方を好む。"
@@ -224,7 +228,7 @@ class Game:
             "突拍子のない発想をする卓の盛り上げ役。事件、異常事態、怪談、騒ぎ、陰謀、秘密、噂話などを面白がる。"
             "普通の説明で終わるより、つい怪しい話や大げさな解釈へ話を広げたがる。"
             "事件性、異常事態、騒ぎに興味を示しやすい。"
-            "見栄、ホラ話、勘違い、自信満々な推測をしてよい。"
+            "根拠の薄い説や大げさな想像を楽しみ、正解でなくてよく、見栄、ホラ話、勘違い、自信満々な推測をしてよい。"
             "知らないことを知っているように話しても、それはホラ話、冗談、勘違いであり、未発見情報や真相を事実として知っているわけではない。\n"
             "ただし『何もしない』『帰ろう』『諦めよう』など進行を止める誘導は禁止。"
             "退屈な状況では黙るより、『何かありそう』という方向へ話を広げたがる。\n"
@@ -251,6 +255,7 @@ class Game:
             "【会話継続】conversation_context.mode=continueなら、previous_companion_linesへの返答、ツッコミ、同意、質問、便乗を優先する。"
             "requested_companionsがあればその人物を優先し、全員指定なら自然な範囲で全員参加を優先する。\n"
             "【話題の派生】会話継続では、同じ話題の反復よりも話題の変化・発展を優先する。"
+            "巨大イカ→沈没船、沈没船→宝物、宝物→王様、王様→空飛ぶ魚のように派生してよい。"
             "場面中の要素から別の記憶、噂、人物、出来事、昔話、感想、冗談などへ自然に話題が移ってよい。"
             "同じ論点を繰り返さない。過去2ターン以内に「安全」「確認」「ルート」「装備」について既に話している場合、"
             "同じ内容を再度出す必要はない。可能なら別の反応や話題へ進む。\n"
@@ -258,6 +263,16 @@ class Game:
             "【履歴と行数・必須】\n"
             "仲間発言は0〜5行。参加者指定がなければ必要な人物だけ話し、全員や5行を埋めない。同じ人物の短い再応答もよい。同じ人物が連続して複数行話すのは稀。"
             "過去台詞をコピーまたは言い換え再出力しない。"
+        )
+
+    def companion_banter_prompt_compact(self):
+        return (
+            "【仲間】話者はニコ、ピピ、クロ、ガランのみ。仲間発言は0〜5行。"
+            "【会話・任意】場面への感想、最初から仲間へ話しかけてもよい。独立コメントより働きかけと短い応答が自然なら選べる。短い応答、仮説を許可。"
+            "事実は現在のGM事実、正式発見、場所・対象・行動、過去の公開情報だけ。"
+            "仮説、冗談、勘違い、過去の仲間台詞を確定事実や攻略情報にしない。"
+            "過去台詞をコピーまたは言い換え再出力しない。"
+            "正式発見は後続のGM行で原文表示されるため詳しく反復しない。"
         )
 
     def recent_companion_lines(self, limit=5):
@@ -601,7 +616,7 @@ class Game:
             "model": self.llm_model(),
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(packet, ensure_ascii=False)},
+                {"role": "user", "content": json.dumps(packet, ensure_ascii=False, separators=(",", ":"))},
             ],
             "temperature": float(os.getenv("BANTER_TEMPERATURE", "0.75")),
             "max_tokens": int(os.getenv("BANTER_MAX_TOKENS", "140")),
@@ -752,7 +767,7 @@ class Game:
             "model": self.llm_model(),
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(packet, ensure_ascii=False)},
+                {"role": "user", "content": json.dumps(packet, ensure_ascii=False, separators=(",", ":"))},
             ],
             "temperature": float(os.getenv("GM_REWRITE_TEMPERATURE", os.getenv("GM_COMMENTARY_TEMPERATURE", "0.45"))),
             "max_tokens": int(os.getenv("GM_REWRITE_MAX_TOKENS", os.getenv("GM_COMMENTARY_MAX_TOKENS", "220"))),
@@ -1160,12 +1175,199 @@ class Game:
         surface = self.surface_target(raw, st)
         return surface if surface else None
 
+
+    # ---------- Scenario Intent Layer (Sprint 21) ----------
+    def get_available_targets(self, st):
+        """Return currently usable scenario targets grouped by category."""
+        if st is None or st.location not in self.locs:
+            return {"npcs": [], "objects": [], "locations": []}
+        loc = self.locs.get(st.location, {})
+        return {
+            "npcs": [nid for nid in loc.get("npcs", []) if nid in self.npcs and self.npc_present_here(nid, st)],
+            "objects": [oid for oid in loc.get("visible_objects", []) if oid in self.objects],
+            "locations": [lid for lid in loc.get("exits", []) if lid in self.locs],
+        }
+
+    def entity_public_name(self, target_id):
+        if target_id in self.npcs:
+            return self.npcs[target_id].get("name", target_id)
+        if target_id in self.objects:
+            return self.objects[target_id].get("name", target_id)
+        if target_id in self.locs:
+            return self.locs[target_id].get("name", target_id)
+        if str(target_id).startswith("surface:"):
+            return str(target_id).split(":", 1)[-1]
+        return str(target_id or "")
+
+    def resolve_target(self, raw, st):
+        """Resolve an explicitly named target from the current scenario scope."""
+        target_id = self.explicit_scene_target(raw, st)
+        if not target_id:
+            return None
+        kind = self.entity_kind(target_id)
+        type_map = {"npc": "NPC", "object": "OBJECT", "location": "LOCATION", "surface": "OBJECT"}
+        return {"target": self.entity_public_name(target_id), "type": type_map.get(kind, kind.upper()), "target_id": target_id}
+
+    def target_prompt_candidates(self, st):
+        targets = self.get_available_targets(st)
+        ids = targets["objects"] + targets["npcs"] + targets["locations"]
+        return [(tid, self.entity_public_name(tid)) for tid in ids]
+
+    def is_targetless_probe(self, raw):
+        text = self.normalize_action_example(raw)
+        if any(x in text for x in ("見張", "様子を見る", "休憩", "待機", "警戒", "野営", "詳しく")):
+            return False
+        exact_probes = {"調べる", "調査", "探す", "何か手掛かりはない", "何か手がかりはない"}
+        probes = ("怪しいもの", "何かない", "気になるもの", "手掛かりはない", "手がかりはない")
+        return text in exact_probes or any(x in text for x in probes)
+
+    def classify_intent(self, raw, target_info=None):
+        """Classify player intent separately from scenario consequences."""
+        text = self.normalize_action_example(raw)
+        alternates = []
+        if any(x in text for x in ("clues", "手掛かり一覧", "手がかり一覧")):
+            major, minor, confidence = "メタ", "clues", 0.9
+        elif any(x in text for x in ("status", "状態")):
+            major, minor, confidence = "メタ", "status", 0.9
+        elif any(x in text for x in ("help", "ヘルプ")):
+            major, minor, confidence = "メタ", "help", 0.9
+        elif "見張りの様子を見る" in raw or ("様子を見る" in text and "見張" in text):
+            major, minor, confidence, alternates = "行動", "観察", 0.57, ["調査"]
+        elif any(x in text for x in ("聞く", "質問", "尋ね", "問い")):
+            major, minor, confidence = "会話", "質問", 0.9
+        elif any(x in text for x in ("相談", "意見")):
+            major, minor, confidence = "会話", "相談", 0.86
+        elif any(x in text for x in ("推理", "考察")):
+            major, minor, confidence = "会話", "推理", 0.84
+        elif any(x in text for x in (
+            "話", "雑談", "好きな食べ物", "しゃべ", "おしゃべり", "思い出", "昔話", "噂話", "世間話",
+            "失敗談", "怖い話", "天気の話", "困ったこと", "楽しかったこと", "暇つぶし", "について話す",
+        )) and not any(x in text for x in ("説得", "安心", "なだめ")):
+            major, minor, confidence = "会話", "雑談", 0.91
+        elif any(x in text for x in ("安心させ", "なだめ", "説得", "励ま", "落ち着かせ")):
+            major, minor, confidence = "行動", "影響", 0.88
+        elif any(x in text for x in ("移動", "向か", "行く", "へ行")):
+            major, minor, confidence = "行動", "移動", 0.86
+        elif any(x in text for x in ("調べ", "調査", "手掛かり", "手がかり", "探す", "探し")):
+            major, minor, confidence = "行動", "調査", 0.88
+        elif any(x in text for x in ("見る", "観察", "確認", "見張", "警戒")):
+            major, minor, confidence = "行動", "観察", 0.82
+        elif any(x in text for x in ("使う", "使用")):
+            major, minor, confidence = "行動", "使用", 0.84
+        elif any(x in text for x in ("休憩", "待機", "野営", "見張")):
+            major, minor, confidence = "行動", "観察", 0.74
+        else:
+            major, minor, confidence = "行動", "観察", 0.6
+            alternates = ["調査"]
+        return {"major": major, "minor": minor, "confidence": confidence, "alternates": alternates}
+
+    def decide_ambiguous_intent(self, intent):
+        if intent.get("confidence", 1.0) >= 0.8 or not intent.get("alternates"):
+            return None
+        primary = intent["minor"]
+        alternate = intent["alternates"][0]
+        roll = self.rng.randint(1, 100)
+        chosen = primary if roll <= 55 else alternate
+        intent["minor"] = chosen
+        return chosen
+
+    def intent_action_type(self, intent, target_id):
+        kind = self.entity_kind(target_id)
+        major, minor = intent.get("major"), intent.get("minor")
+        if kind == "location" and minor == "移動":
+            return "move"
+        if kind == "location" and minor in {"調査", "観察"}:
+            return "area_search"
+        if minor in {"観察", "調査"} and kind == "npc":
+            return "inspect"
+        if major == "会話" and kind == "npc":
+            return "ask"
+        if minor == "影響" and kind == "npc":
+            return "ask"
+        if minor in {"調査", "観察"} and kind in {"object", "surface"}:
+            return "inspect"
+        if minor == "移動" and kind == "location":
+            return "move"
+        return "ask" if kind == "npc" else "inspect"
+
+    def resolve_generic_action(self, raw, intent=None):
+        return {"raw": raw, "action_type": "generic_action", "target_id": None, "intent_mode": "scenario-intent-generic", "intent": intent or self.classify_intent(raw), "action_text": raw}
+
+    def log_intent(self, target, intent, dice=None):
+        if not self.debug:
+            return
+        print("[INTENT]")
+        print(f"target={target}")
+        print(f"major={intent.get('major')}")
+        print(f"minor={intent.get('minor')}")
+        print(f"confidence={intent.get('confidence'):.2f}")
+        if intent.get("alternates"):
+            print("alternates=" + json.dumps(intent.get("alternates"), ensure_ascii=False))
+        if dice:
+            print(f"dice={dice}")
+
+    def log_intent_gate(self, raw, matched, reason):
+        if not self.debug:
+            return
+        print("[INTENT_GATE]")
+        print(f"input={raw}")
+        print(f"matched={str(bool(matched)).lower()}")
+        print(f"reason={reason}")
+
+    def conversation_action(self, raw, intent, dice_choice=None, target="対象なし"):
+        self.log_intent_gate(raw, True, "conversation_intent")
+        self.log_intent(target, intent, dice_choice)
+        return {"raw": raw, "action_type": "action", "target_id": None, "intent_mode": "scenario-intent-conversation", "intent": intent}
+
     def judge(self, raw, st=None):
         # v2.22.0: exact authored action checks precede explicit target routing.
         companion = self.companion_target(raw)
         exact_action_check = None if companion else self.match_exact_action_check(raw, st)
         if exact_action_check:
+            self.log_intent_gate(raw, True, "exact_action_check")
             return {"raw": raw, "action_type": "action_skill_check", "target_id": exact_action_check.get("id"), "intent_mode": "action-check-exact"}
+
+        target_info = None if companion else self.resolve_target(raw, st)
+        explicit_target = (target_info or {}).get("target_id")
+        intent = self.classify_intent(raw, target_info)
+        dice_choice = self.decide_ambiguous_intent(intent)
+
+        generic_keywords = ("休憩", "待機", "野営", "見張", "警戒")
+        named_legacy_target = None if explicit_target is not None else self.target(raw, "ask", st)
+        if companion is None and explicit_target is None and named_legacy_target is None and intent.get("major") == "会話":
+            return self.conversation_action(raw, intent, dice_choice)
+
+        if explicit_target is None and any(keyword in raw for keyword in generic_keywords):
+            self.log_intent_gate(raw, True, "generic_action_intent")
+            self.log_intent(raw, intent, dice_choice)
+            return self.resolve_generic_action(raw, intent)
+
+        if explicit_target is None and self.is_targetless_probe(raw):
+            candidates = self.target_prompt_candidates(st)
+            self.log_intent_gate(raw, True, "targetless_probe")
+            self.log_intent("未指定", intent, dice_choice)
+            return {
+                "raw": raw,
+                "action_type": "target_prompt",
+                "target_id": None,
+                "intent_mode": "scenario-intent-target-prompt",
+                "intent": intent,
+                "candidates": candidates,
+            }
+
+        if explicit_target is not None:
+            self.log_intent_gate(raw, True, "explicit_target")
+            action_type = self.intent_action_type(intent, explicit_target)
+            if self.debug:
+                reason_kind = self.entity_kind(explicit_target)
+                print(f"[ActionCheckRoute]\ninput={raw}\ndecision=skipped\nreason=explicit_{reason_kind}_target")
+                generic_skill = self.infer_generic_skill_action(raw)
+                if generic_skill:
+                    print(f"[GenericSkillRoute]\ninput={raw}\nskill={generic_skill['skill']}\ndecision=suppressed\nreason=explicit_{reason_kind}_target\ntarget={explicit_target}")
+            self.log_intent(self.entity_public_name(explicit_target), intent, dice_choice)
+            return {"raw": raw, "action_type": action_type, "target_id": explicit_target, "intent_mode": "scenario-intent", "intent": intent}
+
+        self.log_intent_gate(raw, False, "legacy_action_intent")
         explicit_target = companion or self.explicit_scene_target(raw, st)
         if explicit_target:
             if self.debug:
@@ -2243,7 +2445,31 @@ class Game:
         return notes, {"status": "ok", "category": "no_reveal", "reason": "ask_topic_no_new_reveal"}, []
     # ---- /v2.14.0 Ask Topic Resolver helpers ----
 
+    def resolve_target_prompt(self, it, st):
+        candidates = it.get("candidates") or self.target_prompt_candidates(st)
+        if not candidates:
+            return ["GM: この場所で特に気になるものは見当たりません。"], {"status": "ok", "category": "target_prompt", "candidates": []}, []
+        lines = ["GM: どれを調べますか？"]
+        lines.extend("・" + name for _tid, name in candidates)
+        return lines, {"status": "ok", "category": "target_prompt", "candidates": candidates}, []
+
+    def resolve_generic_scenario_action(self, it, st):
+        action_text = str(it.get("action_text") or it.get("raw", "")).strip() or "行動"
+        if "休憩" in action_text:
+            line = "GM: 休憩するんだね。少し時間を進めます。"
+        elif "野営" in action_text:
+            line = "GM: 野営の準備をするんだね。周囲の状況を見ながら時間を進めます。"
+        elif "見張" in action_text or "警戒" in action_text:
+            line = "GM: 周囲を警戒して見張ります。何か起きるか注意しておきます。"
+        else:
+            line = f"GM: {action_text}としているんだね。状況を少し進めます。"
+        return [line], {"status": "ok", "category": "generic_action", "action_text": action_text}, [{"type": "generic_action", "action_text": action_text}]
+
     def resolve(self, it, st):
+        if it["action_type"] == "target_prompt":
+            return self.resolve_target_prompt(it, st)
+        if it["action_type"] == "generic_action":
+            return self.resolve_generic_scenario_action(it, st)
         if it["action_type"] == "action_skill_check":
             return self.run_action_skill_check(it, st)
         if it["action_type"] == "generic_skill_action":
@@ -2652,7 +2878,7 @@ class Game:
             "【GMの責務・必須】canonical_gm_textに沿い、行動、観察可能な状態、場面を自然な卓上GM口調で描写する。"
             "【重要】discovery_log_lines_for_context の内容を一切出力してはいけない。"
             "「発見:」という文字列を出力してはいけない。"
-            "正式発見はアプリ側で別途表示される。発見内容の再掲・要約・言い換えは禁止。"
+            "正式発見は後続のGM行で原文表示されるため詳しく反復しない。正式発見はアプリ側で別途表示される。発見内容の再掲・要約・言い換えは禁止。"
             "Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない。"
             "会話NPCを秘密抜きで風景に描き、一覧にしない。"
             "仲間への直接の依頼では本人の反応をGM本文で先回りしない。\n\n"
@@ -2666,13 +2892,13 @@ class Game:
             "仲間は未公開情報、内部情報、正解ルートを知らない。"
             "仮説、冗談、勘違いは許可するが、確定事実や攻略情報として扱わない。"
             "過去の仲間台詞を世界設定や発見済み情報として扱わない。\n\n"
-            + self.companion_banter_prompt()
+            + self.companion_banter_prompt_compact()
         )
         body = {
             "model": self.llm_model(),
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(packet, ensure_ascii=False)},
+                {"role": "user", "content": json.dumps(packet, ensure_ascii=False, separators=(",", ":"))},
             ],
             "temperature": self.table_turn_temperature(),
             "max_tokens": int(os.getenv("TABLE_TURN_MAX_TOKENS", "360")),

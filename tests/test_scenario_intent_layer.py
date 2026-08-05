@@ -1,6 +1,8 @@
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from fixed_truth_ai_gm_mvp import Game, State
@@ -71,6 +73,40 @@ class ScenarioIntentLayerTests(unittest.TestCase):
         self.assertEqual("雑談", intent["intent"]["minor"])
         self.assertNotEqual("generic_skill_action", intent["action_type"])
         self.assertNotEqual("survival", intent.get("skill"))
+
+
+    def test_chat_triggers_route_through_intent_layer_without_action_intent(self):
+        samples = [
+            "旅の思い出を話す",
+            "最近困ったことを話す",
+            "最近楽しかったことを話す",
+            "昔の失敗談を話す",
+            "天気の話をする",
+            "怖い話をする",
+            "変な噂話をする",
+            "暇つぶしに話す",
+        ]
+        self.game.debug = True
+        for raw in samples:
+            with self.subTest(raw=raw):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    intent = self.game.judge(raw, self.state)
+                self.assertEqual(("会話", "雑談"), (intent["intent"]["major"], intent["intent"]["minor"]))
+                self.assertNotEqual("area_search", intent["action_type"])
+                self.assertIn("[INTENT_GATE]", output.getvalue())
+                self.assertIn("matched=true", output.getvalue())
+                self.assertIn("reason=conversation_intent", output.getvalue())
+                self.assertNotIn("[ActionIntent]", output.getvalue())
+
+    def test_non_intent_route_logs_gate_miss_before_legacy_action_intent(self):
+        self.game.debug = True
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.game.judge("何かする", self.state)
+        self.assertIn("[INTENT_GATE]", output.getvalue())
+        self.assertIn("matched=false", output.getvalue())
+        self.assertIn("reason=legacy_action_intent", output.getvalue())
 
     def test_question_routes_to_conversation_question(self):
         intent = self.game.judge("村長に聞く", self.state)
