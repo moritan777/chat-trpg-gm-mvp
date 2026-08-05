@@ -1147,6 +1147,105 @@ class Game:
         surface = self.surface_target(raw, st)
         return surface if surface else None
 
+
+    # ---------- Scenario-driven Intent Layer (Sprint 21) ----------
+    INTENT_CONFIDENCE_THRESHOLD = 0.8
+
+    def display_name_for_id(self, target_id):
+        if target_id in self.objects:
+            return self.objects[target_id].get("name", target_id)
+        if target_id in self.npcs:
+            return self.npcs[target_id].get("name", target_id)
+        if target_id in self.locs:
+            return self.locs[target_id].get("name", target_id)
+        if str(target_id).startswith("companion:"):
+            return str(target_id).split(":", 1)[-1]
+        if str(target_id).startswith("surface:"):
+            return str(target_id).split(":", 1)[-1]
+        return target_id or "対象なし"
+
+    def get_available_targets(self, st):
+        if st is None or st.location not in self.locs:
+            return {"npcs": [], "objects": [], "locations": []}
+        loc = self.locs[st.location]
+        npcs = [nid for nid in loc.get("npcs", []) if nid in self.npcs]
+        objects = [oid for oid in loc.get("visible_objects", []) if oid in self.objects]
+        locations = [lid for lid in loc.get("exits", []) if lid in self.locs]
+        return {"npcs": npcs, "objects": objects, "locations": locations}
+
+    def resolve_target(self, raw, st):
+        target_id = self.companion_target(raw) or self.explicit_scene_target(raw, st)
+        if not target_id:
+            return None
+        kind = self.entity_kind(target_id)
+        type_name = {"npc": "NPC", "object": "OBJECT", "location": "LOCATION", "surface": "OBJECT", "companion": "NPC"}.get(kind, kind.upper())
+        return {"id": target_id, "target": self.display_name_for_id(target_id), "type": type_name}
+
+    def classify_intent(self, raw, target_info=None):
+        text = self.normalize_action_example(raw)
+        target_type = (target_info or {}).get("type")
+        def hit(words):
+            return any(w in text for w in words)
+        if hit(("clues", "手掛かり", "手がかり", "events", "イベント", "help", "ヘルプ", "status", "状態")):
+            minor = "clues" if hit(("clues", "手掛かり", "手がかり")) else "events" if hit(("events", "イベント")) else "status" if hit(("status", "状態")) else "help"
+            return {"major": "メタ", "minor": minor, "confidence": 0.9, "alternates": []}
+        if target_type == "NPC" and hit(("様子を見る", "見る", "観察", "確認")) and not hit(("話", "聞", "尋ね", "質問", "相談", "雑談")):
+            return {"major": "行動", "minor": "観察", "confidence": 0.86, "alternates": []}
+        if target_type == "NPC" or hit(("話", "聞", "尋ね", "質問", "相談", "雑談")):
+            if hit(("安心", "励ま", "説得", "なだめ", "落ち着か")):
+                return {"major": "行動", "minor": "影響", "confidence": 0.88, "alternates": []}
+            if hit(("聞", "尋ね", "質問", "教えて")):
+                return {"major": "会話", "minor": "質問", "confidence": 0.9, "alternates": []}
+            if hit(("相談", "推理", "考え")):
+                return {"major": "会話", "minor": "相談" if "相談" in text else "推理", "confidence": 0.86, "alternates": []}
+            return {"major": "会話", "minor": "雑談", "confidence": 0.91, "alternates": []}
+        if target_type == "LOCATION" and hit(("調べ", "探", "見る", "観察", "確認")):
+            return {"major": "行動", "minor": "調査", "confidence": 0.86, "alternates": []}
+        if hit(("移動", "行く", "向か", "入る")) or target_type == "LOCATION":
+            return {"major": "行動", "minor": "移動", "confidence": 0.9, "alternates": []}
+        if hit(("見張りの様子", "様子を見る")):
+            return {"major": "行動", "minor": "観察", "confidence": 0.57, "alternates": ["調査"]}
+        if hit(("調べ", "探", "捜", "調査")):
+            return {"major": "行動", "minor": "調査", "confidence": 0.88 if target_info else 0.7, "alternates": ["観察"] if not target_info else []}
+        if hit(("見る", "観察", "確認", "見張")):
+            return {"major": "行動", "minor": "観察", "confidence": 0.84, "alternates": []}
+        if hit(("安心", "励ま", "なだめ", "落ち着か")):
+            return {"major": "行動", "minor": "影響", "confidence": 0.88, "alternates": []}
+        if hit(("使", "飲", "食")):
+            return {"major": "行動", "minor": "使用", "confidence": 0.84, "alternates": []}
+        return {"major": "行動", "minor": "運動", "confidence": 0.5, "alternates": ["観察", "調査"]}
+
+    def decide_intent_minor(self, intent):
+        if intent.get("confidence", 0) >= self.INTENT_CONFIDENCE_THRESHOLD or not intent.get("alternates"):
+            return intent.get("minor"), None
+        choices = [intent.get("minor")] + list(intent.get("alternates") or [])
+        roll = self.rng.randint(1, 100)
+        index = min(len(choices) - 1, int((roll - 1) / (100 / len(choices))))
+        return choices[index], choices[index]
+
+    def log_intent(self, target, intent, dice=None):
+        lines = ["[INTENT]", f"target={target}", f"major={intent.get('major')}", f"minor={intent.get('minor')}", f"confidence={intent.get('confidence'):.2f}"]
+        if intent.get("alternates"):
+            lines.append("alternates=[" + "、".join(intent.get("alternates")) + "]")
+        if dice:
+            lines.append(f"dice={dice}")
+        print("\n".join(lines))
+
+    def is_targetless_probe(self, raw, intent):
+        return intent.get("major") == "行動" and intent.get("minor") in {"調査", "観察"} and any(w in raw for w in ("調べ", "探", "手掛かり", "手がかり", "怪しい"))
+
+    def target_prompt(self, st):
+        targets = self.get_available_targets(st)
+        ids = targets["objects"] + targets["npcs"] + targets["locations"]
+        if not ids:
+            return ["GM: この場所で特に気になるものは見当たりません。"], {"status": "ok", "category": "target_prompt", "candidates": []}, []
+        lines = ["GM: どれを調べますか？"] + ["・" + self.display_name_for_id(x) for x in ids]
+        return lines, {"status": "ok", "category": "target_prompt", "candidates": ids}, []
+
+    def resolve_generic_action(self, it, st):
+        text = it.get("raw", "行動")
+        return [f"GM: {text}をするんだね。状況を見ながら少し時間を進めます。"], {"status": "ok", "category": "generic_action"}, [{"type": "generic_action", "action_text": text}]
+
     def judge(self, raw, st=None):
         # v2.22.0: exact authored action checks precede explicit target routing.
         companion = self.companion_target(raw)
@@ -1217,6 +1316,29 @@ class Game:
                 if action_type == "area_search":
                     target_id = None
                 action_type = self.refine_action_with_target(action_type, target_id)
+        target_info = self.resolve_target(raw, st) if st is not None else None
+        scenario_intent = self.classify_intent(raw, target_info)
+        decided_minor, dice_choice = self.decide_intent_minor(scenario_intent)
+        scenario_intent["minor"] = decided_minor
+        intent_target_label = target_info.get("target") if target_info else (raw if scenario_intent.get("minor") in {"観察", "調査"} and "見張" in raw else "対象なし")
+        self.log_intent(intent_target_label, scenario_intent, dice_choice)
+        if not target_info and self.is_targetless_probe(raw, scenario_intent) and any(self.get_available_targets(st).values()):
+            return {"raw": raw, "action_type": "target_prompt", "target_id": None, "intent_mode": "scenario-intent", "intent": scenario_intent}
+        if not target_info and raw.strip() in {"見張る", "警戒する", "待機する", "休憩する", "野営する"}:
+            return {"raw": raw, "action_type": "generic_action", "target_id": None, "intent_mode": "generic-action", "intent": scenario_intent}
+        if target_info:
+            target_id = target_info.get("id")
+            if scenario_intent.get("major") == "会話":
+                action_type = "ask" if scenario_intent.get("minor") == "質問" else "consult" if str(target_id).startswith("companion:") else "ask"
+            elif target_info.get("type") == "LOCATION" and target_id == (st.location if st is not None else None) and scenario_intent.get("minor") in {"調査", "観察"}:
+                action_type = "area_search"
+                target_id = None
+            elif scenario_intent.get("minor") == "移動":
+                action_type = "move"
+            elif scenario_intent.get("minor") in {"調査", "観察"}:
+                action_type = "inspect"
+            elif scenario_intent.get("minor") == "影響" and target_info.get("type") == "NPC":
+                action_type = "ask"
         if self.debug:
             if explicit_target:
                 explicit_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
@@ -1226,7 +1348,10 @@ class Game:
                 )
             print(f"[ActionRoute] input={raw} route={mode} action={action_type} target={target_id}")
         generic_skill = self.infer_generic_skill_action(raw)
-        generic_allowed = self.should_route_generic_skill_action(action_type, target_id)
+        generic_allowed = (
+            scenario_intent.get("major") != "会話"
+            and self.should_route_generic_skill_action(action_type, target_id)
+        )
         if generic_skill and generic_allowed:
             if self.debug:
                 print(
@@ -1240,6 +1365,7 @@ class Game:
                 "intent_mode": "generic-skill-action",
                 "skill": generic_skill["skill"],
                 "action_text": raw,
+                "intent": scenario_intent,
             }
         if generic_skill and not generic_allowed and self.debug:
             if explicit_target:
@@ -1251,7 +1377,7 @@ class Game:
                 f"\nskill={generic_skill['skill']}\ndecision=suppressed"
                 f"\nreason=explicit_{suppressed_kind}_target\ntarget={target_id}"
             )
-        return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
+        return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode, "intent": scenario_intent}
 
     def eligible_action_checks(self, st=None):
         location = st.location if st is not None else None
@@ -2235,6 +2361,10 @@ class Game:
             return self.run_action_skill_check(it, st)
         if it["action_type"] == "generic_skill_action":
             return self.resolve_generic_skill_action(it, st)
+        if it["action_type"] == "target_prompt":
+            return self.target_prompt(st)
+        if it["action_type"] == "generic_action":
+            return self.resolve_generic_action(it, st)
         if it["action_type"] == "area_search":
             return self.area_search(it, st)
         if it["action_type"] == "consult":
