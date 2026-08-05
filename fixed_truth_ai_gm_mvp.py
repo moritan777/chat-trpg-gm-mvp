@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.21.0
+Chat-style TTRPG GM MVP v2.22.0
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -23,7 +23,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-VERSION = "v2.21.0 [skill-result-consequences]"
+VERSION = "v2.22.0 [action-routing-guards]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -907,6 +907,8 @@ class Game:
             return "ask", "lexical"
         if any(x in raw for x in ["周辺", "周囲", "あたり", "辺り", "この辺"]) and any(x in raw for x in ["調べ", "探", "見回", "見渡"]):
             return "area_search", "lexical"
+        if any(x in raw for x in ["見る", "観察", "確認", "調べ"]):
+            return "inspect", "lexical"
         return "action", "lexical"
 
     def embedded_action_intent(self, raw, allowed=None):
@@ -1146,8 +1148,11 @@ class Game:
         return surface if surface else None
 
     def judge(self, raw, st=None):
-        # v2.11.3: target-aware routing plus scene-surface target fallback.
+        # v2.22.0: exact authored action checks precede explicit target routing.
         companion = self.companion_target(raw)
+        exact_action_check = None if companion else self.match_exact_action_check(raw, st)
+        if exact_action_check:
+            return {"raw": raw, "action_type": "action_skill_check", "target_id": exact_action_check.get("id"), "intent_mode": "action-check-exact"}
         explicit_target = companion or self.explicit_scene_target(raw, st)
         if explicit_target:
             if self.debug:
@@ -1221,10 +1226,11 @@ class Game:
                 )
             print(f"[ActionRoute] input={raw} route={mode} action={action_type} target={target_id}")
         generic_skill = self.infer_generic_skill_action(raw)
-        if generic_skill and self.should_route_generic_skill_action(action_type, target_id):
+        generic_allowed = self.should_route_generic_skill_action(action_type, target_id)
+        if generic_skill and generic_allowed:
             if self.debug:
                 print(
-                    f"[GenericSkillActionRoute]\ninput={raw}"
+                    f"[GenericSkillRoute]\ninput={raw}"
                     f"\nskill={generic_skill['skill']}\ndecision=selected"
                 )
             return {
@@ -1235,16 +1241,52 @@ class Game:
                 "skill": generic_skill["skill"],
                 "action_text": raw,
             }
+        if generic_skill and not generic_allowed and self.debug:
+            if explicit_target:
+                suppressed_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
+            else:
+                suppressed_kind = self.entity_kind(target_id)
+            print(
+                f"[GenericSkillRoute]\ninput={raw}"
+                f"\nskill={generic_skill['skill']}\ndecision=suppressed"
+                f"\nreason=explicit_{suppressed_kind}_target\ntarget={target_id}"
+            )
         return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
 
-    def match_action_check(self, raw, st=None):
-        """Find a scenario-defined, non-object action that matches the utterance."""
+    def eligible_action_checks(self, st=None):
         location = st.location if st is not None else None
         eligible = []
         for check in self.action_checks:
             required_location = check.get("required_location")
             if not required_location or required_location == location:
                 eligible.append(check)
+        return location, eligible
+
+    def match_exact_action_check(self, raw, st=None):
+        """Find a scenario-defined action check whose examples exactly match the utterance."""
+        location, eligible = self.eligible_action_checks(st)
+        if self.debug:
+            print(f"[ExactActionChecks]\nlocation={location}\ntotal={len(self.action_checks)}\neligible={len(eligible)}")
+        normalized_raw = self.normalize_action_example(raw)
+        for check in eligible:
+            examples = [str(x) for x in check.get("positive_examples", []) if str(x).strip()]
+            exact_match = normalized_raw in {self.normalize_action_example(x) for x in examples}
+            if self.debug:
+                print(
+                    f"[ActionCheckCandidate]\nid={check.get('id')}"
+                    f"\nrequired_location={check.get('required_location')}"
+                    f"\nlocation_match=True\nexact_match={exact_match}"
+                    f"\nmode=exact-precheck"
+                )
+            if exact_match:
+                if self.debug:
+                    print(f"[ActionCheckRoute]\ninput={raw}\nid={check.get('id')}\ndecision=selected")
+                return check
+        return None
+
+    def match_action_check(self, raw, st=None):
+        """Find a scenario-defined, non-object action that matches the utterance."""
+        location, eligible = self.eligible_action_checks(st)
 
         if self.debug:
             print(f"[ActionChecks]\nlocation={location}\ntotal={len(self.action_checks)}\neligible={len(eligible)}")
@@ -1581,7 +1623,12 @@ class Game:
                 continue
             if not self.available(did, st):
                 continue
-            if d.get("source", {}).get("id") != target_id:
+            source = d.get("source", {})
+            if it.get("action_type") == "inspect" and source.get("type") == "npc":
+                if self.debug:
+                    print(f"[NpcInspectDiscoverable] candidate={did} decision=blocked reason=npc_inspect_no_testimony")
+                continue
+            if source.get("id") != target_id:
                 continue
             cond_ok, missing_all, req_any, any_ok = self.discoverable_conditions(d, st)
             if not cond_ok:

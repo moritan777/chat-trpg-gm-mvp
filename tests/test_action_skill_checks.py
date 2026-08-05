@@ -328,6 +328,83 @@ class LighthouseActionSkillCheckIntegrationTests(unittest.TestCase):
         intent = game.judge("少年に洞窟のことを聞く", State("rocky_shore"))
         self.assertEqual(("ask", "boy"), (intent["action_type"], intent["target_id"]))
 
+    def test_exact_footprint_action_checks_beat_explicit_object_targets(self):
+        for raw in ("足跡を追う", "足跡をたどる"):
+            with self.subTest(raw=raw):
+                game = Game(self.temp_dir.name, skill_dice_total=7)
+                state = State("cliff_path")
+
+                intent = game.judge(raw, state)
+                lines, result, _events = game.resolve(intent, state)
+
+                self.assertEqual(("action_skill_check", "track_cliff_footprints"), (intent["action_type"], intent["target_id"]))
+                self.assertEqual("action_skill_check", result["category"])
+                self.assertIn("GM: 判定開始", lines)
+
+    def test_footprint_inspection_stays_object_inspect(self):
+        for raw in ("足跡を見る", "足跡を調べる"):
+            with self.subTest(raw=raw):
+                game = Game(self.temp_dir.name)
+                game.score_examples = lambda _raw, _examples: (0.99, "embedding")
+
+                intent = game.judge(raw, State("cliff_path"))
+
+                self.assertEqual(("inspect", "cliff_footprints"), (intent["action_type"], intent["target_id"]))
+
+    def test_npc_inspect_does_not_reveal_npc_testimony(self):
+        for raw in ("レナの様子を見る", "隠れてレナの様子を見る"):
+            with self.subTest(raw=raw):
+                game = Game(self.temp_dir.name)
+                state = State("lighthouse_entrance")
+
+                intent = game.judge(raw, state)
+                _lines, _result, events = game.resolve(intent, state)
+
+                self.assertEqual(("inspect", "assistant"), (intent["action_type"], intent["target_id"]))
+                revealed = {event.get("id") for event in events}
+                self.assertNotIn("assistant_key_story", revealed)
+                self.assertNotIn("assistant_secret", revealed)
+                self.assertNotIn("assistant_key_story", state.discovered)
+                self.assertNotIn("assistant_secret", state.discovered)
+
+    def test_npc_ask_still_reveals_testimony(self):
+        game = Game(self.temp_dir.name)
+        state = State("lighthouse_entrance")
+
+        intent = game.judge("助手に鍵のことを聞く", state)
+        _lines, _result, events = game.resolve(intent, state)
+
+        self.assertEqual(("ask", "assistant"), (intent["action_type"], intent["target_id"]))
+        self.assertIn("assistant_key_story", {event.get("id") for event in events})
+        self.assertIn("assistant_key_story", state.discovered)
+
+    def test_npc_second_stage_ask_still_reveals_when_condition_met(self):
+        game = Game(self.temp_dir.name)
+        state = State("lighthouse_entrance")
+        state.discovered.update({"assistant_key_story", "head_report"})
+
+        intent = game.judge("助手に本当のことを聞く", state)
+        _lines, _result, events = game.resolve(intent, state)
+
+        self.assertEqual(("ask", "assistant"), (intent["action_type"], intent["target_id"]))
+        self.assertIn("assistant_secret", {event.get("id") for event in events})
+        self.assertIn("assistant_secret", state.discovered)
+
+    def test_generic_skill_suppression_debug_log_for_explicit_object(self):
+        game = Game(self.temp_dir.name, debug_judge=True)
+        output = StringIO()
+
+        with redirect_stdout(output):
+            intent = game.judge("小舟の陰に隠れて様子を見る", State("sea_cave"))
+
+        self.assertEqual(("inspect", "cave_boat"), (intent["action_type"], intent["target_id"]))
+        log = output.getvalue()
+        self.assertIn("[GenericSkillRoute]", log)
+        self.assertIn("skill=stealth", log)
+        self.assertIn("decision=suppressed", log)
+        self.assertIn("reason=explicit_object_target", log)
+        self.assertIn("target=cave_boat", log)
+
 
 if __name__ == "__main__":
     unittest.main()
