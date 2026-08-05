@@ -1239,7 +1239,10 @@ class Game:
             major, minor, confidence = "会話", "相談", 0.86
         elif any(x in text for x in ("推理", "考察")):
             major, minor, confidence = "会話", "推理", 0.84
-        elif any(x in text for x in ("話", "雑談", "好きな食べ物", "しゃべ")) and not any(x in text for x in ("説得", "安心", "なだめ")):
+        elif any(x in text for x in (
+            "話", "雑談", "好きな食べ物", "しゃべ", "おしゃべり", "思い出", "昔話", "噂話", "世間話",
+            "失敗談", "怖い話", "天気の話", "困ったこと", "楽しかったこと", "暇つぶし", "について話す",
+        )) and not any(x in text for x in ("説得", "安心", "なだめ")):
             major, minor, confidence = "会話", "雑談", 0.91
         elif any(x in text for x in ("安心させ", "なだめ", "説得", "励ま", "落ち着かせ")):
             major, minor, confidence = "行動", "影響", 0.88
@@ -1303,11 +1306,25 @@ class Game:
         if dice:
             print(f"dice={dice}")
 
+    def log_intent_gate(self, raw, matched, reason):
+        if not self.debug:
+            return
+        print("[INTENT_GATE]")
+        print(f"input={raw}")
+        print(f"matched={str(bool(matched)).lower()}")
+        print(f"reason={reason}")
+
+    def conversation_action(self, raw, intent, dice_choice=None, target="対象なし"):
+        self.log_intent_gate(raw, True, "conversation_intent")
+        self.log_intent(target, intent, dice_choice)
+        return {"raw": raw, "action_type": "action", "target_id": None, "intent_mode": "scenario-intent-conversation", "intent": intent}
+
     def judge(self, raw, st=None):
         # v2.22.0: exact authored action checks precede explicit target routing.
         companion = self.companion_target(raw)
         exact_action_check = None if companion else self.match_exact_action_check(raw, st)
         if exact_action_check:
+            self.log_intent_gate(raw, True, "exact_action_check")
             return {"raw": raw, "action_type": "action_skill_check", "target_id": exact_action_check.get("id"), "intent_mode": "action-check-exact"}
 
         target_info = None if companion else self.resolve_target(raw, st)
@@ -1316,16 +1333,18 @@ class Game:
         dice_choice = self.decide_ambiguous_intent(intent)
 
         generic_keywords = ("休憩", "待機", "野営", "見張", "警戒")
+        named_legacy_target = None if explicit_target is not None else self.target(raw, "ask", st)
+        if companion is None and explicit_target is None and named_legacy_target is None and intent.get("major") == "会話":
+            return self.conversation_action(raw, intent, dice_choice)
+
         if explicit_target is None and any(keyword in raw for keyword in generic_keywords):
+            self.log_intent_gate(raw, True, "generic_action_intent")
             self.log_intent(raw, intent, dice_choice)
             return self.resolve_generic_action(raw, intent)
 
-        if explicit_target is None and "好きな食べ物" in raw:
-            self.log_intent("対象なし", intent, dice_choice)
-            return {"raw": raw, "action_type": "action", "target_id": None, "intent_mode": "scenario-intent", "intent": intent}
-
         if explicit_target is None and self.is_targetless_probe(raw):
             candidates = self.target_prompt_candidates(st)
+            self.log_intent_gate(raw, True, "targetless_probe")
             self.log_intent("未指定", intent, dice_choice)
             return {
                 "raw": raw,
@@ -1337,6 +1356,7 @@ class Game:
             }
 
         if explicit_target is not None:
+            self.log_intent_gate(raw, True, "explicit_target")
             action_type = self.intent_action_type(intent, explicit_target)
             if self.debug:
                 reason_kind = self.entity_kind(explicit_target)
@@ -1347,6 +1367,7 @@ class Game:
             self.log_intent(self.entity_public_name(explicit_target), intent, dice_choice)
             return {"raw": raw, "action_type": action_type, "target_id": explicit_target, "intent_mode": "scenario-intent", "intent": intent}
 
+        self.log_intent_gate(raw, False, "legacy_action_intent")
         explicit_target = companion or self.explicit_scene_target(raw, st)
         if explicit_target:
             if self.debug:
