@@ -55,6 +55,31 @@ class OpeningGeographyTests(unittest.TestCase):
         self.assertIn("物陰", locations["warehouse"]["intro"])
         self.assertIn("表情", locations["tavern"]["intro"])
 
+
+    def test_lighthouse_entrance_foreshadows_assistant_key_question(self):
+        locations = {location["id"]: location for location in self.scenario["locations"]}
+        npcs = {npc["id"]: npc for npc in self.scenario["npcs"]}
+        entrance = locations["lighthouse_entrance"]
+        assistant = npcs["assistant"]
+
+        entrance_text = "\n".join(
+            entrance.get(field, "")
+            for field in ("intro", "banter_observation", "surface_banter_observation")
+        )
+        assistant_text = "\n".join(
+            assistant.get(field, "")
+            for field in ("banter_observation", "surface_banter_observation")
+        )
+
+        self.assertIn("半開き", entrance_text)
+        self.assertTrue("錠前" in entrance_text or "扉" in entrance_text)
+        self.assertTrue(any(term in entrance_text for term in ("壊された形跡はなく", "壊れていない", "破壊痕")))
+        self.assertIn("鍵", entrance_text)
+        self.assertIn("鍵束", assistant_text)
+        self.assertIn("気にする", assistant_text)
+        self.assertNotIn("倉庫番", entrance_text + assistant_text)
+        self.assertNotIn("予備鍵を貸した", entrance_text + assistant_text)
+
     def test_lighthouse_action_checks_have_partial_success_space(self):
         checks = {check["id"]: check for check in self.scenario["action_checks"]}
 
