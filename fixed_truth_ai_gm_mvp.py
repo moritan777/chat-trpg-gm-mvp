@@ -243,7 +243,7 @@ class Game:
             "同じ内容を再度出す必要はない。可能なら別の反応や話題へ進む。\n"
             "\n"
             "【履歴と行数・必須】\n"
-            "仲間発言は0〜5行。参加者指定がなければ必要な人物だけ話し、全員や5行を埋めない。同じ人物の短い再応答もよい。"
+            "仲間発言は0〜5行。参加者指定がなければ必要な人物だけ話し、全員や5行を埋めない。同じ人物の短い再応答もよい。同じ人物が連続して複数行話すのは稀。通常は1行で十分。"
             "過去台詞をコピーまたは言い換え再出力しない。"
         )
 
@@ -2674,8 +2674,15 @@ class Game:
             try:
                 data = self.post_json(url, body, int(os.getenv("TABLE_TURN_TIMEOUT", os.getenv("GM_LINE_REWRITE_TIMEOUT", "60"))), "TABLE_TURN")
                 choice = data.get("choices", [{}])[0]
+                if self.debug_llm or self.debug:
+                    print("[TABLE_TURN_CHOICE]", repr(choice))
                 out = choice.get("message", {}).get("content") or choice.get("text", "") or ""
                 out = out.strip()
+
+                out = re.sub(r"</?think>", "", out, flags=re.I).strip()
+
+                if self.debug_llm or self.debug:
+                    print("[TABLE_TURN_RAW_BEFORE_VALIDATION]", repr(out))
                 break
             except Exception as e:
                 if self.debug_llm or self.debug:
@@ -2697,7 +2704,7 @@ class Game:
             return fallback_notes_with_official_discoveries(notes), ""
         if not out.startswith("GM:"):
             out = "GM: " + out
-        if self.debug:
+        if self.debug_llm or self.debug:
             print("[TABLE_TURN_RAW]", repr(out))
 
         rendered_lines = [x.strip() for x in out.splitlines() if x.strip()]
