@@ -181,49 +181,61 @@ class Game:
 
     def companion_banter_prompt(self):
         return (
-            "【情報境界・必須】\n"
-            "事実は現在のGM事実、正式発見、場所・対象・行動、過去の公開情報だけ。"
-            "current_observationsは表層情報で、未公開情報、内部情報、正解ルートは知らない。"
-            "仮説、冗談、勘違い、過去の仲間台詞を確定事実や攻略情報にしない。\n"
+            "【発言人数・必須】\n"
+            "通常は1〜3人だけ反応する。"
+            "全員参加は稀。"
+            "仲間発言0行も許可。"
+            "全員に台詞を与えようとしない。"
+            "興味を持たない人物は黙っていてよい。"
+            "一回のターンにおいて、発言は1度だけとする。複数回の発言は禁止する\n"
             "\n"
             "【仲間名・必須】\n"
             f"利用可能な仲間は{'、'.join(self.companion_names())}のみ。"
             "この4名以外の名前を仲間発言者として出力してはいけない。"
-            "仲間行の話者ラベルは必ず、ニコ、ピピ、クロ、ガランのいずれかにする。\n"
+            "仲間行は必ず「ニコ：本文」「ピピ：本文」「クロ：本文」「ガラン：本文」の形式で出力する。話者名の直後には全角コロン「：」を付け、括弧形式の「ニコ『本文』」「ニコ「本文」」は使わない。\n"
             "\n"
             "【仲間の役割】\n"
             "仲間はGMの補助説明員ではなく、人物関係と卓の空気を作る参加者である。"
             "シナリオ上の重要度と人物の興味は別。事件だけでなく、環境、物、身体感覚、仲間、些細なことも話題にできる。\n"
             "\n"
-            "【ニコ】\n"
-            "小さな要素から妙な連想をする。細部、形、音、匂い、小物、違和感などに目が向きやすいが、"
-            "観察そのものより「そこから何を思い付くか」を優先する。"
-            "霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説を思い出すような連想をしてよい。"
-            "観察で終わらず、昔話、噂、妙な想像、全く別の話題へ飛んでもよい。"
-            "むしろ単なる観察報告だけより、連想先まで話す方を好む。"
-            "連想先は有益でも正確でもなくてよい。単なる観察報告で終えるより、"
-            "「だから○○を思い出した」「そういえば○○って聞いたことない？」のように連想まで進める。"
-            "仲間から「なんでそうなるんだ」と思われる発想も歓迎する。冗談役には固定しない。\n"
-            "\n"
-            "【ピピ】\n"
-            "理屈より人へ意識が向く。\n"
-            "状況そのものより、仲間やNPCがどうしているかに関心を持つ。\n"
-            "体調、疲れ、不安、無理をしていないか、困っていないかなどによく気付く。\n"
-            "自分が怖がるだけでなく、誰かを気遣ったり、人と人の関係や様子について話すことも多い。\n"
-            "仲間やNPCへの反応が中心だが、怖がり役や特定人物への依存役には固定しない。\n"
-            "\n"
+             "【ニコ】\n"
+             "小さな要素から妙な連想をする。細部、形、音、匂い、小物、違和感などに目が向きやすいが、"
+             "観察そのものより「そこから何を思い付くか」を優先する。"
+             "細部、形、音、匂い、小物、違和感などから別の出来事、噂、昔話、旅の記憶、昔話や伝説を思い出すような連想をしてよい。"
+             "観察で終わらず、昔話、噂、妙な想像、全く別の話題へ飛んでもよい。"
+             "むしろ単なる観察報告だけより、連想先まで話す方を好む。"
+             "連想先は有益でも正確でもなくてよい。単なる観察報告で終えるより、"
+             "「だから○○を思い出した」「そういえば○○って聞いたことない？」のように連想まで進める。"
+             "仲間から「なんでそうなるんだ」と思われる発想も歓迎する。冗談役には固定しない。"
+             "観察対象そのものの説明や推測で終わるより、そこから別の出来事、人物、昔話、噂、旅の記憶を思い出す方を好む。"
+             "ニコは些細な物、匂い、音、景色、天候、小道具などを見ると発言しやすい。"
+             "重要な手掛かりだから反応するのではなく、自分の連想が刺激された時に反応する。\n"
+             "\n"
+             "【ピピ】\n"
+             "理屈より人へ意識が向く。"
+             "状況そのものより、仲間やNPCがどうしているかに関心を持つ。"
+             "体調、疲れ、不安、無理をしていないか、困っていないかなどによく気付く。"
+             "自分が怖がるだけでなく、誰かを気遣ったり、人と人の関係や様子について話すことも多い。"
+             "仲間やNPCへの反応が中心だが、怖がり役や特定人物への依存役には固定しない。"
+             "人の仕草、表情、態度、沈黙、距離感、会話の様子などを見ると発言しやすい。"
+             "事件や手掛かりそのものより、『あの人どうしたんだろう』『大丈夫かな』と人へ関心が向きやすい。"
+             "重要な手掛かりだから反応するのではなく、自分が誰かを気に掛けた時に反応する。\n"
             "【クロ】\n"
-            "卓の盛り上げ役。正解でなくてよく、根拠の薄い説や大げさな想像を言ってよい。"
+            "突拍子のない発想をする卓の盛り上げ役。事件、異常事態、怪談、騒ぎ、陰謀、秘密、噂話などを面白がる。"
+            "普通の説明で終わるより、つい怪しい話や大げさな解釈へ話を広げたがる。"
             "事件性、異常事態、騒ぎに興味を示しやすい。"
             "見栄、ホラ話、勘違い、自信満々な推測をしてよい。"
             "知らないことを知っているように話しても、それはホラ話、冗談、勘違いであり、未発見情報や真相を事実として知っているわけではない。\n"
-            "ただし『何もしない』『帰ろう』『諦めよう』など進行を止める誘導は禁止。\n"
+            "ただし『何もしない』『帰ろう』『諦めよう』など進行を止める誘導は禁止。"
+            "退屈な状況では黙るより、『何かありそう』という方向へ話を広げたがる。\n"
             "\n"
             "【ガラン】\n"
             "まず動いてみることを好む。考え込むより試す、様子を見るより行ってみるという発想をしやすい。"
             "崖なら登ろうとする。道が分かれるなら近い方へ行こうとする。"
             "気になる相手がいるなら話しかけようとする。"
             "必ずしも正しい判断でなくてよい。勢いでその場で試すこともある。"
+            "何かできそうなことを見つけると、つい自分でもやってみたくなる。"
+            "成功した行動には「やった」「できた」「次も見よう」のような前向きな反応をしやすい。"
             "『まず○○』『順番を決めよう』『候補を整理しよう』のような段取りの提案は控えめにする。"
             "推理を断定したり主導したりはしない。判断はPLへ残す。\n"
             "\n"
@@ -234,16 +246,17 @@ class Game:
             "\n"
             "【会話・任意】\n"
             "場面へ感想を述べても、最初から仲間へ話しかけてもよい。複数行では、独立コメントより働きかけと短い応答が自然なら選べる。"
-            "短い応答で終了してよく、独り言、沈黙、無視も自然なら許可する。掛け合いは必須ではない。\n"
+            "短い応答で終了してよく、独り言、沈黙、無視も自然なら許可する。掛け合いは必須ではない。"
+            "他の仲間が直前に発言しており、自然な賛同・反論・ツッコミ・補足が思い付く場合は、GMではなく仲間へ反応すること。\n"
             "【会話継続】conversation_context.mode=continueなら、previous_companion_linesへの返答、ツッコミ、同意、質問、便乗を優先する。"
             "requested_companionsがあればその人物を優先し、全員指定なら自然な範囲で全員参加を優先する。\n"
             "【話題の派生】会話継続では、同じ話題の反復よりも話題の変化・発展を優先する。"
-            "巨大イカ→沈没船、沈没船→宝物、宝物→王様、王様→空飛ぶ魚のような自然な連想を歓迎する。"
+            "場面中の要素から別の記憶、噂、人物、出来事、昔話、感想、冗談などへ自然に話題が移ってよい。"
             "同じ論点を繰り返さない。過去2ターン以内に「安全」「確認」「ルート」「装備」について既に話している場合、"
             "同じ内容を再度出す必要はない。可能なら別の反応や話題へ進む。\n"
             "\n"
             "【履歴と行数・必須】\n"
-            "仲間発言は0〜5行。参加者指定がなければ必要な人物だけ話し、全員や5行を埋めない。同じ人物の短い再応答もよい。同じ人物が連続して複数行話すのは稀。通常は1行で十分。"
+            "仲間発言は0〜5行。参加者指定がなければ必要な人物だけ話し、全員や5行を埋めない。同じ人物の短い再応答もよい。同じ人物が連続して複数行話すのは稀。"
             "過去台詞をコピーまたは言い換え再出力しない。"
         )
 
@@ -1147,105 +1160,6 @@ class Game:
         surface = self.surface_target(raw, st)
         return surface if surface else None
 
-
-    # ---------- Scenario-driven Intent Layer (Sprint 21) ----------
-    INTENT_CONFIDENCE_THRESHOLD = 0.8
-
-    def display_name_for_id(self, target_id):
-        if target_id in self.objects:
-            return self.objects[target_id].get("name", target_id)
-        if target_id in self.npcs:
-            return self.npcs[target_id].get("name", target_id)
-        if target_id in self.locs:
-            return self.locs[target_id].get("name", target_id)
-        if str(target_id).startswith("companion:"):
-            return str(target_id).split(":", 1)[-1]
-        if str(target_id).startswith("surface:"):
-            return str(target_id).split(":", 1)[-1]
-        return target_id or "対象なし"
-
-    def get_available_targets(self, st):
-        if st is None or st.location not in self.locs:
-            return {"npcs": [], "objects": [], "locations": []}
-        loc = self.locs[st.location]
-        npcs = [nid for nid in loc.get("npcs", []) if nid in self.npcs]
-        objects = [oid for oid in loc.get("visible_objects", []) if oid in self.objects]
-        locations = [lid for lid in loc.get("exits", []) if lid in self.locs]
-        return {"npcs": npcs, "objects": objects, "locations": locations}
-
-    def resolve_target(self, raw, st):
-        target_id = self.companion_target(raw) or self.explicit_scene_target(raw, st)
-        if not target_id:
-            return None
-        kind = self.entity_kind(target_id)
-        type_name = {"npc": "NPC", "object": "OBJECT", "location": "LOCATION", "surface": "OBJECT", "companion": "NPC"}.get(kind, kind.upper())
-        return {"id": target_id, "target": self.display_name_for_id(target_id), "type": type_name}
-
-    def classify_intent(self, raw, target_info=None):
-        text = self.normalize_action_example(raw)
-        target_type = (target_info or {}).get("type")
-        def hit(words):
-            return any(w in text for w in words)
-        if hit(("clues", "手掛かり", "手がかり", "events", "イベント", "help", "ヘルプ", "status", "状態")):
-            minor = "clues" if hit(("clues", "手掛かり", "手がかり")) else "events" if hit(("events", "イベント")) else "status" if hit(("status", "状態")) else "help"
-            return {"major": "メタ", "minor": minor, "confidence": 0.9, "alternates": []}
-        if target_type == "NPC" and hit(("様子を見る", "見る", "観察", "確認")) and not hit(("話", "聞", "尋ね", "質問", "相談", "雑談")):
-            return {"major": "行動", "minor": "観察", "confidence": 0.86, "alternates": []}
-        if target_type == "NPC" or hit(("話", "聞", "尋ね", "質問", "相談", "雑談")):
-            if hit(("安心", "励ま", "説得", "なだめ", "落ち着か")):
-                return {"major": "行動", "minor": "影響", "confidence": 0.88, "alternates": []}
-            if hit(("聞", "尋ね", "質問", "教えて")):
-                return {"major": "会話", "minor": "質問", "confidence": 0.9, "alternates": []}
-            if hit(("相談", "推理", "考え")):
-                return {"major": "会話", "minor": "相談" if "相談" in text else "推理", "confidence": 0.86, "alternates": []}
-            return {"major": "会話", "minor": "雑談", "confidence": 0.91, "alternates": []}
-        if target_type == "LOCATION" and hit(("調べ", "探", "見る", "観察", "確認")):
-            return {"major": "行動", "minor": "調査", "confidence": 0.86, "alternates": []}
-        if hit(("移動", "行く", "向か", "入る")) or target_type == "LOCATION":
-            return {"major": "行動", "minor": "移動", "confidence": 0.9, "alternates": []}
-        if hit(("見張りの様子", "様子を見る")):
-            return {"major": "行動", "minor": "観察", "confidence": 0.57, "alternates": ["調査"]}
-        if hit(("調べ", "探", "捜", "調査")):
-            return {"major": "行動", "minor": "調査", "confidence": 0.88 if target_info else 0.7, "alternates": ["観察"] if not target_info else []}
-        if hit(("見る", "観察", "確認", "見張")):
-            return {"major": "行動", "minor": "観察", "confidence": 0.84, "alternates": []}
-        if hit(("安心", "励ま", "なだめ", "落ち着か")):
-            return {"major": "行動", "minor": "影響", "confidence": 0.88, "alternates": []}
-        if hit(("使", "飲", "食")):
-            return {"major": "行動", "minor": "使用", "confidence": 0.84, "alternates": []}
-        return {"major": "行動", "minor": "運動", "confidence": 0.5, "alternates": ["観察", "調査"]}
-
-    def decide_intent_minor(self, intent):
-        if intent.get("confidence", 0) >= self.INTENT_CONFIDENCE_THRESHOLD or not intent.get("alternates"):
-            return intent.get("minor"), None
-        choices = [intent.get("minor")] + list(intent.get("alternates") or [])
-        roll = self.rng.randint(1, 100)
-        index = min(len(choices) - 1, int((roll - 1) / (100 / len(choices))))
-        return choices[index], choices[index]
-
-    def log_intent(self, target, intent, dice=None):
-        lines = ["[INTENT]", f"target={target}", f"major={intent.get('major')}", f"minor={intent.get('minor')}", f"confidence={intent.get('confidence'):.2f}"]
-        if intent.get("alternates"):
-            lines.append("alternates=[" + "、".join(intent.get("alternates")) + "]")
-        if dice:
-            lines.append(f"dice={dice}")
-        print("\n".join(lines))
-
-    def is_targetless_probe(self, raw, intent):
-        return intent.get("major") == "行動" and intent.get("minor") in {"調査", "観察"} and any(w in raw for w in ("調べ", "探", "手掛かり", "手がかり", "怪しい"))
-
-    def target_prompt(self, st):
-        targets = self.get_available_targets(st)
-        ids = targets["objects"] + targets["npcs"] + targets["locations"]
-        if not ids:
-            return ["GM: この場所で特に気になるものは見当たりません。"], {"status": "ok", "category": "target_prompt", "candidates": []}, []
-        lines = ["GM: どれを調べますか？"] + ["・" + self.display_name_for_id(x) for x in ids]
-        return lines, {"status": "ok", "category": "target_prompt", "candidates": ids}, []
-
-    def resolve_generic_action(self, it, st):
-        text = it.get("raw", "行動")
-        return [f"GM: {text}をするんだね。状況を見ながら少し時間を進めます。"], {"status": "ok", "category": "generic_action"}, [{"type": "generic_action", "action_text": text}]
-
     def judge(self, raw, st=None):
         # v2.22.0: exact authored action checks precede explicit target routing.
         companion = self.companion_target(raw)
@@ -1316,29 +1230,6 @@ class Game:
                 if action_type == "area_search":
                     target_id = None
                 action_type = self.refine_action_with_target(action_type, target_id)
-        target_info = self.resolve_target(raw, st) if st is not None else None
-        scenario_intent = self.classify_intent(raw, target_info)
-        decided_minor, dice_choice = self.decide_intent_minor(scenario_intent)
-        scenario_intent["minor"] = decided_minor
-        intent_target_label = target_info.get("target") if target_info else (raw if scenario_intent.get("minor") in {"観察", "調査"} and "見張" in raw else "対象なし")
-        self.log_intent(intent_target_label, scenario_intent, dice_choice)
-        if not target_info and self.is_targetless_probe(raw, scenario_intent) and any(self.get_available_targets(st).values()):
-            return {"raw": raw, "action_type": "target_prompt", "target_id": None, "intent_mode": "scenario-intent", "intent": scenario_intent}
-        if not target_info and raw.strip() in {"見張る", "警戒する", "待機する", "休憩する", "野営する"}:
-            return {"raw": raw, "action_type": "generic_action", "target_id": None, "intent_mode": "generic-action", "intent": scenario_intent}
-        if target_info:
-            target_id = target_info.get("id")
-            if scenario_intent.get("major") == "会話":
-                action_type = "ask" if scenario_intent.get("minor") == "質問" else "consult" if str(target_id).startswith("companion:") else "ask"
-            elif target_info.get("type") == "LOCATION" and target_id == (st.location if st is not None else None) and scenario_intent.get("minor") in {"調査", "観察"}:
-                action_type = "area_search"
-                target_id = None
-            elif scenario_intent.get("minor") == "移動":
-                action_type = "move"
-            elif scenario_intent.get("minor") in {"調査", "観察"}:
-                action_type = "inspect"
-            elif scenario_intent.get("minor") == "影響" and target_info.get("type") == "NPC":
-                action_type = "ask"
         if self.debug:
             if explicit_target:
                 explicit_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
@@ -1348,10 +1239,7 @@ class Game:
                 )
             print(f"[ActionRoute] input={raw} route={mode} action={action_type} target={target_id}")
         generic_skill = self.infer_generic_skill_action(raw)
-        generic_allowed = (
-            scenario_intent.get("major") != "会話"
-            and self.should_route_generic_skill_action(action_type, target_id)
-        )
+        generic_allowed = self.should_route_generic_skill_action(action_type, target_id)
         if generic_skill and generic_allowed:
             if self.debug:
                 print(
@@ -1365,7 +1253,6 @@ class Game:
                 "intent_mode": "generic-skill-action",
                 "skill": generic_skill["skill"],
                 "action_text": raw,
-                "intent": scenario_intent,
             }
         if generic_skill and not generic_allowed and self.debug:
             if explicit_target:
@@ -1377,7 +1264,7 @@ class Game:
                 f"\nskill={generic_skill['skill']}\ndecision=suppressed"
                 f"\nreason=explicit_{suppressed_kind}_target\ntarget={target_id}"
             )
-        return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode, "intent": scenario_intent}
+        return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
 
     def eligible_action_checks(self, st=None):
         location = st.location if st is not None else None
@@ -2361,10 +2248,6 @@ class Game:
             return self.run_action_skill_check(it, st)
         if it["action_type"] == "generic_skill_action":
             return self.resolve_generic_skill_action(it, st)
-        if it["action_type"] == "target_prompt":
-            return self.target_prompt(st)
-        if it["action_type"] == "generic_action":
-            return self.resolve_generic_action(it, st)
         if it["action_type"] == "area_search":
             return self.area_search(it, st)
         if it["action_type"] == "consult":
@@ -2717,11 +2600,12 @@ class Game:
             "safe_banter_packet": safe_packet,
             "event_types": [e.get("type") for e in ev],
             "instructions": [
-                "canonical_gm_textの意味と情報量を保ってGM口調に整える。",
+                "canonical_gm_text内のGM行は削除しない。",
+                "判定開始、出目、補正、最終値、結果ランク、成功・失敗は原文のまま保持する。要約は禁止。",
                 "preserved_log_lines_not_to_generate は既に別途表示されるので、絶対に出力しない。",
                 "未発見の手がかり・真相・正解ルートを追加しない。",
                 "current_observationsは仲間が目にしている表層情報であり、発言対象にする義務はない。",
-                "仲間発言は0〜5行。場面への独立コメントだけでなく、自然なら仲間への働きかけと短い応答を選べる。",
+                "仲間発言は0〜5行。1人につき0〜5行ではない。場面への独立コメントだけでなく、自然なら仲間への働きかけと短い応答を選べる。",
                 "仲間はsafe_banter_packet.safetyを最優先し、GMが出していない新情報を言わない。",
                 "GM本文は確定事実と中立的な観察だけを扱い、未定義の重要度評価や攻略評価を加えない。",
             ],
@@ -2763,16 +2647,25 @@ class Game:
         system_prompt = (
             "あなたはチャット型TRPGリプレイの1ターン描写を整えるレンダラー。\n"
             "【出力契約・必須】GM行と仲間行だけを出力し、最初は必ず『GM:』。"
-            "発見・判定・結果・補正・debug、JSON、箇条書き、コードブロックは禁止。仲間発言は0〜5行。\n\n"
+            "発見・判定・結果・補正・debug、JSON、箇条書き、コードブロックは禁止。仲間発言は0〜5行。1人につき0〜5行ではない。"
+            "ただしcanonical_gm_textに含まれる判定開始、出目、補正、最終値、結果ランク、成功・失敗のGM行は、原文のまま保持する。\n\n"
             "【GMの責務・必須】canonical_gm_textに沿い、行動、観察可能な状態、場面を自然な卓上GM口調で描写する。"
-            "正式発見は後続のGM行で原文表示されるため詳しく反復しない。"
+            "【重要】discovery_log_lines_for_context の内容を一切出力してはいけない。"
+            "「発見:」という文字列を出力してはいけない。"
+            "正式発見はアプリ側で別途表示される。発見内容の再掲・要約・言い換えは禁止。"
             "Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない。"
             "会話NPCを秘密抜きで風景に描き、一覧にしない。"
             "仲間への直接の依頼では本人の反応をGM本文で先回りしない。\n\n"
             + skill_result_prompt
             +
-            "【仲間への入力・必須】safe_banter_packetを情報境界とする。"
-            "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move なら重要な手掛かりがあるふりをしない。\n\n"
+            "【仲間への入力・必須】safe_banter_packetを仲間の情報境界とする。"
+            "仲間発言はsafe_banter_packet.current_observations、場所、対象、行動、過去の公開情報だけを根拠にする。"
+            "discovery_log_lines_for_contextは、正式発見を後段でGM表示するための専用情報であり、仲間には未公開である。仲間発言の根拠として使用せず、内容を先回りして断定、要約、言い換えしない。"
+            "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move なら、重要な手掛かりがあるふりをしない。\n\n"
+            "【情報境界・必須】current_observationsは表層情報である。"
+            "仲間は未公開情報、内部情報、正解ルートを知らない。"
+            "仮説、冗談、勘違いは許可するが、確定事実や攻略情報として扱わない。"
+            "過去の仲間台詞を世界設定や発見済み情報として扱わない。\n\n"
             + self.companion_banter_prompt()
         )
         body = {
@@ -2825,32 +2718,131 @@ class Game:
             self.debug_companion_history("CompanionHistoryAfter")
             self.debug_companion_history("CompanionHistoryAction", action="clear", reason="table renderer returned empty or invalid output")
             return fallback_notes_with_official_discoveries(notes), ""
-        if "発見:" in out or "判定:" in out or "結果:" in out or "補正:" in out or "[" in out:
+        output_lines = [
+            line.strip()
+            for line in out.splitlines()
+            if line.strip()
+        ]
+
+        # 正式発見はアプリ側で別途表示するため、LLMが生成した場合は拒否する。
+        has_forbidden_discovery = any(
+            "発見:" in line or "発見：" in line
+            for line in output_lines
+        )
+
+        # 判定情報は、canonical_gm_text由来のGM行に限って許可する。
+        # 仲間発言やラベルなし行に判定・結果・補正等が出た場合は拒否する。
+        allowed_gm_judge_prefixes = (
+            "GM: 判定開始",
+            "GM：判定開始",
+            "GM: 2d6を振る",
+            "GM：2d6を振る",
+            "GM: 出目:",
+            "GM：出目：",
+            "GM: 技能補正:",
+            "GM：技能補正：",
+            "GM: 手掛かり補正:",
+            "GM：手掛かり補正：",
+            "GM: 最終値:",
+            "GM：最終値：",
+            "GM: 結果ランク:",
+            "GM：結果ランク：",
+            "GM: 成功です。",
+            "GM：成功です。",
+            "GM: 失敗です。",
+            "GM：失敗です。",
+        )
+
+        judge_labels = (
+            "判定:",
+            "判定：",
+            "結果:",
+            "結果：",
+            "補正:",
+            "補正：",
+            "出目:",
+            "出目：",
+            "最終値:",
+            "最終値：",
+            "結果ランク:",
+            "結果ランク：",
+        )
+
+        has_invalid_judge_label = any(
+            any(label in line for label in judge_labels)
+            and not line.startswith(allowed_gm_judge_prefixes)
+            for line in output_lines
+        )
+
+        # 角括弧は、行頭の構造化ラベルだけを拒否する。
+        # 通常の台詞内に含まれる角括弧までは拒否しない。
+        has_forbidden_bracket_label = any(
+            line.startswith("[") or line.startswith("［")
+            for line in output_lines
+        )
+
+        if (
+            has_forbidden_discovery
+            or has_invalid_judge_label
+            or has_forbidden_bracket_label
+        ):
+            if self.debug_llm or self.debug:
+                print(
+                    "[TABLE_TURN_VALIDATION]",
+                    "forbidden_discovery=" + str(has_forbidden_discovery),
+                    "invalid_judge_label=" + str(has_invalid_judge_label),
+                    "forbidden_bracket_label=" + str(has_forbidden_bracket_label),
+                )
+
             if hasattr(self, "rewrite_gm_notes"):
                 notes = self.rewrite_gm_notes(notes, it, res, ev, st)
+
             self.last_companion_turn = {}
             self.debug_companion_history("CompanionHistoryAfter")
-            self.debug_companion_history("CompanionHistoryAction", action="clear", reason="table renderer returned forbidden labels")
+            self.debug_companion_history(
+                "CompanionHistoryAction",
+                action="clear",
+                reason="table renderer returned forbidden labels",
+            )
             return fallback_notes_with_official_discoveries(notes), ""
+
         if not out.startswith("GM:"):
             out = "GM: " + out
         if self.debug_llm or self.debug:
             print("[TABLE_TURN_RAW]", repr(out))
 
         rendered_lines = [x.strip() for x in out.splitlines() if x.strip()]
-        companion_prefixes = tuple(prefix for name in self.companion_names() for prefix in (f"{name}:", f"{name}："))
+        companion_prefixes = tuple(prefix for name in self.companion_names() for prefix in (f"{name}:", f"{name}：", f"{name}「"))
         speaker_line_pattern = re.compile(r"^([^:：]{1,20})[:：]")
         gm_rendered, companion_rendered = [], []
         dropped_unknown_speakers = []
         for line in rendered_lines:
             if line.startswith(companion_prefixes):
-                companion_rendered.append(line)
+                normalized_line = line
+
+                for name in self.companion_names():
+                    quoted_prefix = f"{name}「"
+
+                    if line.startswith(quoted_prefix):
+                        dialogue = line[len(quoted_prefix):]
+
+                        if dialogue.endswith("」"):
+                            dialogue = dialogue[:-1]
+
+                        normalized_line = f"{name}：{dialogue}"
+                        break
+
+                companion_rendered.append(normalized_line)
+
             else:
                 speaker_match = speaker_line_pattern.match(line)
+
                 if speaker_match and not line.startswith("GM:"):
                     dropped_unknown_speakers.append(line)
                     continue
+
                 gm_rendered.append(line)
+
         if dropped_unknown_speakers and (self.debug_llm or self.debug):
             print("[TABLE_TURN_DROPPED_UNKNOWN_COMPANION]", repr(dropped_unknown_speakers))
         if not gm_rendered:
