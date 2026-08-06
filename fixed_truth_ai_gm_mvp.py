@@ -21,7 +21,7 @@ import time
 import unicodedata
 import urllib.parse
 from pathlib import Path
-VERSION = "v2.28.0 [hybrid-intent-propagation]"
+VERSION = "v2.28.1 [clues-tiered-intent]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -1347,21 +1347,62 @@ class Game:
         return {
             "会話": {
                 "雑談": ["仲間と雑談する", "思い出を話す", "事件と関係ない話をする", "暇つぶしに話す"],
-                "質問": ["誰かに質問する", "どう思うか聞く", "理由を尋ねる", "答えを求める"],
-                "相談": ["仲間に相談する", "作戦を立てる", "次の行動を話し合う", "助言を求める"],
-                "推理": ["犯人について推理する", "公開情報から考える", "みんなで考察する", "仮説を立てる"],
+
+                "質問": [
+                    "誰かに質問する",
+                    "どう思うか聞く",
+                    "理由を尋ねる",
+                    "答えを求める",
+                ],
+
+                "相談": [
+                    "仲間に相談する",
+                    "作戦を立てる",
+                    "次の行動を話し合う",
+                    "助言を求める",
+                    "どうするのがよいか相談する",
+                    "どうしようか考える",
+                    "次は何をするか話し合う",
+                    "みんなの意見を聞く",
+                    "何から始めるか相談する",
+                    "どこから手を付けるか相談する",
+                    "今後の方針を決める",
+                    "次の一手を考える",
+                ],
+
+                "推理": [
+                    "犯人について推理する",
+                    "公開情報から考える",
+                    "みんなで考察する",
+                    "仮説を立てる",
+                    "何か引っかかる",
+                    "妙な感じがする",
+                    "違和感がある",
+                    "腑に落ちない",
+                    "話がつながらない",
+                    "別の可能性を考える",
+                ],
             },
+
             "行動": {
                 "移動": ["別の場所へ移動する", "目的地へ向かう", "元の場所へ戻る"],
+
                 "観察": ["対象の様子を見る", "周囲を警戒する", "見張りを観察する"],
+
                 "調査": ["対象を詳しく調べる", "新しい手掛かりを探す", "周辺を探索する"],
+
                 "使用": ["道具を使う", "持ち物を使用する", "装置を動かす"],
+
                 "影響": ["相手を説得する", "相手を安心させる", "脅して従わせる"],
+
                 "待機": ["しばらく待つ", "休憩して時間を進める", "ここで野営する"],
+
                 "汎用": ["崖を登る", "箱を動かす", "岩をどかす", "自由な方法を試す"],
             },
+
             "メタ": {
                 "status": ["現在地や状態を確認する", "今の状況を表示する"],
+
                 "help": ["使い方を見る", "利用可能なコマンドを確認する"],
             },
         }
@@ -1384,6 +1425,11 @@ class Game:
         return None
 
     def semantic_fallback_intent(self, raw):
+        """Classify ambiguous free input in two tiers: major first, then minor.
+
+        Tier 1 never rolls. The highest major score wins even by a small margin.
+        Tier 2 rolls only on an exact score tie; otherwise its highest score wins.
+        """
         examples = self.fallback_intent_examples()
         labels, flat = [], []
         for major, minors in examples.items():
@@ -1393,33 +1439,47 @@ class Game:
                 labels.append((major, minor, start, len(flat)))
         vectors = self.get_embeddings([raw] + flat)
         if not vectors:
-            return {"major": "行動", "minor": "汎用", "confidence": 0.5, "alternates": [], "explicit": False, "route": "offline-generic"}
+            return {
+                "major": "行動", "minor": "汎用", "confidence": 0.5,
+                "alternates": [], "explicit": False, "route": "offline-generic",
+                "tier1_scores": {}, "tier2_scores": {},
+            }
         raw_vector = vectors[0]
-        ranked = []
+        minor_ranked = []
         for major, minor, start, end in labels:
             similarities = [self.cosine(raw_vector, vectors[index + 1]) for index in range(start, end)]
-            ranked.append((max(similarities) if similarities else 0.0, major, minor))
-        ranked.sort(reverse=True)
-        threshold = float(os.getenv("FALLBACK_INTENT_THRESHOLD", "0.62"))
-        tie_margin = float(os.getenv("FALLBACK_INTENT_TIE_MARGIN", "0.05"))
-        best_score, best_major, best_minor = ranked[0]
-        same_level = [
-            {"major": major, "minor": minor, "score": round(score, 4)}
-            for score, major, minor in ranked
-            if best_score - score <= tie_margin
-        ][:2]
-        if best_score < threshold and len(same_level) < 2 and len(ranked) > 1:
-            score, major, minor = ranked[1]
-            same_level.append({"major": major, "minor": minor, "score": round(score, 4)})
-        alternates = [item for item in same_level[1:]]
+            minor_ranked.append((max(similarities) if similarities else 0.0, major, minor))
+
+        # Tier 1: aggregate each major by its strongest semantic example.
+        major_scores = {}
+        for score, major, _minor in minor_ranked:
+            major_scores[major] = max(score, major_scores.get(major, -1.0))
+        major_ranked = sorted(((score, major) for major, score in major_scores.items()), reverse=True)
+        best_major_score, best_major = major_ranked[0]
+
+        # Tier 2: compare only minors inside the winning major.
+        tier2_ranked = sorted(
+            ((score, minor) for score, major, minor in minor_ranked if major == best_major),
+            reverse=True,
+        )
+        best_score, best_minor = tier2_ranked[0]
+        exact_ties = [
+            {"major": best_major, "minor": minor, "score": score}
+            for score, minor in tier2_ranked
+            if math.isclose(score, best_score, rel_tol=0.0, abs_tol=1e-12)
+        ]
         return {
             "major": best_major,
             "minor": best_minor,
             "confidence": best_score,
-            "alternates": alternates,
-            "candidates": same_level,
+            "alternates": exact_ties[1:],
+            "candidates": exact_ties if len(exact_ties) > 1 else [exact_ties[0]],
             "explicit": False,
             "route": "embedding-hierarchy",
+            "tier1_scores": {major: round(score, 4) for score, major in major_ranked},
+            "tier2_scores": {minor: round(score, 4) for score, minor in tier2_ranked},
+            "tier1_choice": best_major,
+            "tier1_confidence": best_major_score,
         }
 
     def classify_intent(self, raw, target_info=None):
@@ -1434,18 +1494,26 @@ class Game:
         )
 
     def decide_ambiguous_intent(self, intent):
-        """Roll only when semantic classification retained multiple viable meanings."""
+        """Roll only for an exact Tier-2 tie inside the already selected major."""
         alternatives = list(intent.get("alternates") or [])
         if intent.get("explicit") or not alternatives:
             return None
-        candidates = [{"major": intent.get("major"), "minor": intent.get("minor"), "score": intent.get("confidence", 0.0)}] + alternatives
+        candidates = [
+            {"major": intent.get("major"), "minor": intent.get("minor"), "score": intent.get("confidence", 0.0)}
+        ] + alternatives
+        scores = [float(candidate.get("score", 0.0)) for candidate in candidates]
+        if not all(math.isclose(score, scores[0], rel_tol=0.0, abs_tol=1e-12) for score in scores[1:]):
+            return None
+        # Defensive invariant: ambiguity dice must never cross a Tier-1 boundary.
+        candidates = [candidate for candidate in candidates if candidate.get("major") == intent.get("major")]
+        if len(candidates) < 2:
+            return None
         roll = self.rng.randint(1, 100)
         index = min(len(candidates) - 1, (roll - 1) * len(candidates) // 100)
         chosen = candidates[index]
-        intent["major"] = chosen.get("major")
         intent["minor"] = chosen.get("minor")
         intent["alternates"] = [candidate for i, candidate in enumerate(candidates) if i != index]
-        return {"roll": roll, "candidates": candidates, "chosen": chosen}
+        return {"tier": 2, "roll": roll, "candidates": candidates, "chosen": chosen}
 
     def intent_action_type(self, intent, target_id):
         kind = self.entity_kind(target_id)
@@ -1481,6 +1549,11 @@ class Game:
             print(f"route={intent.get('route')}")
         if intent.get("explicit") is not None:
             print(f"explicit={str(bool(intent.get('explicit'))).lower()}")
+        if intent.get("tier1_scores"):
+            print("tier1_scores=" + json.dumps(intent.get("tier1_scores"), ensure_ascii=False))
+            print(f"tier1_choice={intent.get('tier1_choice')}")
+        if intent.get("tier2_scores"):
+            print("tier2_scores=" + json.dumps(intent.get("tier2_scores"), ensure_ascii=False))
         if intent.get("candidates"):
             print("candidates=" + json.dumps(intent.get("candidates"), ensure_ascii=False))
         if intent.get("alternates"):
@@ -2642,13 +2715,32 @@ class Game:
             st.ended = True
             return ["GM: セッションを終了します。"], {"status": "ok", "category": "command"}, []
         if command == "clues":
-            if not st.discovered:
-                return ["GM: まだ公開済みの手掛かりはありません。"], {"status": "ok", "category": "clues"}, []
-            lines = ["GM: 現在の手掛かりです。"]
+            discovered_texts = []
             for did in sorted(st.discovered):
                 clue = self.disc.get(did, {})
-                lines.append("GM: ・" + str(clue.get("public_text") or clue.get("name") or did))
-            return lines, {"status": "ok", "category": "clues"}, []
+                text = str(clue.get("public_text") or clue.get("name") or did).strip()
+                if text:
+                    discovered_texts.append(text)
+            discovered_set = set(discovered_texts)
+            initial_facts = [fact for fact in self.public_case_facts(st) if fact not in discovered_set]
+
+            lines = ["GM: 現時点で分かっていること："]
+            if initial_facts:
+                lines.extend("GM: ・" + fact for fact in initial_facts)
+            else:
+                lines.append("GM: ・事件開始時点で共有された事実はありません。")
+
+            if discovered_texts:
+                lines.append("GM: 調査で発見した追加の手掛かり：")
+                lines.extend("GM: ・" + text for text in discovered_texts)
+            else:
+                lines.append("GM: 調査で発見した追加の手掛かりは、まだありません。")
+            return lines, {
+                "status": "ok",
+                "category": "clues",
+                "public_fact_count": len(initial_facts),
+                "discovered_clue_count": len(discovered_texts),
+            }, []
         if command == "status":
             location = self.locs.get(st.location, {}).get("name", st.location)
             return [f"GM: 現在地は{location}です。", f"GM: 公開済みの手掛かりは{len(st.discovered)}件です。"], {"status": "ok", "category": "status"}, []
