@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Chat-style TTRPG GM MVP v2.22.0
+Chat-style TTRPG GM MVP v2.30.0
 
 Current features:
 - conditional discoverables: discoverables can now have requires_all / requires_any / required_location
@@ -21,7 +21,7 @@ import time
 import unicodedata
 import urllib.parse
 from pathlib import Path
-VERSION = "v2.22.0 [action-routing-guards]"
+VERSION = "v2.28.0 [hybrid-intent-propagation]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -238,8 +238,14 @@ class Game:
             "必ずしも正しい判断でなくてよい。勢いでその場で試すこともある。"
             "何かできそうなことを見つけると、つい自分でもやってみたくなる。"
             "成功した行動には「やった」「できた」「次も見よう」のような前向きな反応をしやすい。"
+            "長い推理や難しい相談はあまり得意ではない。"
+            "考え込んで話が止まるくらいなら、とりあえず行ってみた方が早いと思いやすい。"
+            "危険そうな場所や障害を見ても、まず『できるかどうか』より『やってみるか』が先に来る。"
+            "誰かが慎重になりすぎていると、『見れば分かる』『行ってみよう』『試してみよう』と背中を押しやすい。"
+            "手掛かりを並べて推理するより、現場を見る、人に聞く、触ってみるなど実際の行動に興味を持つ。"
             "『まず○○』『順番を決めよう』『候補を整理しよう』のような段取りの提案は控えめにする。"
-            "推理を断定したり主導したりはしない。判断はPLへ残す。\n"
+            "推理を断定したり主導したりはしない。判断はPLへ残す。"
+            "ただし行動案を口にすることは多く、『じゃあ行くか』『やってみるか』『登れそうだな』のような発言は歓迎する。\n"
             "\n"
             "【おふざけ入力】\n"
             "conversation_diagnostics.playfulInput=trueの時だけ、雑談モードを1ターン許可する。"
@@ -311,6 +317,15 @@ class Game:
             elif reason == "ContinueExpired":
                 print(f"Turns={turns}")
                 print("LastTopics=" + "|".join(self.recent_companion_topic_summary()))
+
+    def normalize_companion_dialogue(self, line):
+        text = unicodedata.normalize("NFKC", str(line or ""))
+        text = re.sub(r"^[^:：]{1,20}[:：]", "", text).strip()
+        return re.sub(r"[\s。、！？!?…・]", "", text)
+
+    def meaningful_companion_line(self, line):
+        body = self.normalize_companion_dialogue(line)
+        return body not in {"", "…", "……"} and len(body) >= 3
 
     def remember_companion_turn(self, lines, it, st):
         companion_lines = [
@@ -1077,60 +1092,84 @@ class Game:
         return object_id in self.objects and object_id in self.visible_object_ids(st)
 
     def target(self, raw, action_type="inspect", st=None):
+        """Resolve named entities without allowing short place names to steal longer names.
+
+        Resolution priority is deliberately independent from scenario consequence routing:
+        exact canonical name -> exact alias -> longest match -> partial match.
+        Scene/action suitability is only used after those textual priorities tie.
+        """
         if action_type == "consult":
             return self.companion_target(raw)
-        candidates = []
+
+        normalized_raw = self.normalize_action_example(raw)
         goal_targets = self.goal_targets()
-        alias_iter = getattr(self, "alias_entries", None)
-        if alias_iter is None:
-            alias_iter = list(getattr(self, "alias", {}).items())
         object_scoped = st is not None and action_type in {"inspect", "skill_check"}
         visible_objects = self.visible_object_ids(st) if object_scoped else set()
-        if self.debug and object_scoped:
-            print(f"[ObjectScope] location={st.location} visible={json.dumps(sorted(visible_objects), ensure_ascii=False)}")
-        for alias, key in alias_iter:
-            if not alias or alias not in raw:
-                continue
-            kind = self.entity_kind(key)
-            if object_scoped and kind == "object" and key not in visible_objects:
-                if self.debug:
-                    print(f"[TargetRejected] target={key} reason=not_visible_at_current_location")
-                continue
-            idx = raw.find(alias)
-            score = len(alias)
-            if st is not None:
-                if kind == "object" and key in self.locs[st.location].get("visible_objects", []):
-                    score += 30000
-                if kind == "npc" and key in self.locs[st.location].get("npcs", []):
-                    score += 30000
-                if kind == "location" and key in self.locs[st.location].get("exits", []):
-                    score += 30000
-                if kind == "location" and key == st.location:
-                    score += 5000
-            if action_type == "move":
-                score += 10000 if kind == "location" else -1000
-            elif action_type == "ask":
-                score += 10000 if kind == "npc" else (1000 if kind == "object" else 0)
-            elif action_type == "skill_check":
-                score += 10000 if kind == "object" else (5000 if kind == "npc" else 0)
-            elif action_type == "resolve_goal":
-                score += 20000 if key in goal_targets else 0
-                score += 5000 if kind in {"npc", "object"} else 0
-            else:
-                score += 10000 if kind == "object" else (5000 if kind == "npc" else 0)
-            after = raw[idx + len(alias): idx + len(alias) + 1]
-            if action_type == "ask" and after in {"に", "へ"}:
-                score += 5000
-            if action_type in {"inspect", "skill_check", "resolve_goal"} and after in {"を", "に", "へ"}:
-                score += 2000
-            candidates.append((score, len(alias), -idx, key, alias, kind))
+        candidates = []
+
+        for collection_kind, collection in (("object", self.objects), ("npc", self.npcs), ("location", self.locs)):
+            for key, value in collection.items():
+                canonical = str(value.get("name", "") or "")
+                aliases = [str(x) for x in (value.get("aliases", []) or []) if str(x)]
+                entries = [(canonical, True)] if canonical else []
+                entries += [(alias, False) for alias in aliases]
+                # IDs remain supported as compatibility aliases, but never outrank authored names.
+                if str(key) and str(key) not in {name for name, _ in entries}:
+                    entries.append((str(key), False))
+
+                for name, is_canonical in entries:
+                    if not name:
+                        continue
+                    normalized_name = self.normalize_action_example(name)
+                    idx = raw.find(name)
+                    normalized_idx = normalized_raw.find(normalized_name)
+                    if idx < 0 and normalized_idx < 0:
+                        continue
+                    if object_scoped and collection_kind == "object" and key not in visible_objects:
+                        if self.debug:
+                            print(f"[TargetRejected] target={key} reason=not_visible_at_current_location")
+                        continue
+
+                    exact_utterance = normalized_raw == normalized_name
+                    # A complete authored name/alias occurrence outranks any shorter partial occurrence.
+                    textual_tier = 4 if exact_utterance and is_canonical else 3 if exact_utterance else 2
+                    authored_tier = 1 if is_canonical else 0
+                    match_length = len(normalized_name)
+
+                    suitability = 0
+                    if st is not None and st.location in self.locs:
+                        loc = self.locs[st.location]
+                        if collection_kind == "object" and key in loc.get("visible_objects", []):
+                            suitability += 30
+                        if collection_kind == "npc" and key in loc.get("npcs", []):
+                            suitability += 30
+                        if collection_kind == "location" and key in loc.get("exits", []):
+                            suitability += 30
+                        if collection_kind == "location" and key == st.location:
+                            suitability += 5
+                    if action_type == "move" and collection_kind == "location":
+                        suitability += 10
+                    elif action_type == "ask" and collection_kind == "npc":
+                        suitability += 10
+                    elif action_type == "skill_check" and collection_kind == "object":
+                        suitability += 10
+                    elif action_type == "resolve_goal" and key in goal_targets:
+                        suitability += 20
+                    elif action_type == "inspect" and collection_kind == "object":
+                        suitability += 10
+
+                    position = idx if idx >= 0 else normalized_idx
+                    candidates.append((textual_tier, match_length, authored_tier, suitability, -position, key, name, collection_kind))
+
         if not candidates:
             return None
         candidates.sort(reverse=True)
         if self.debug:
-            top = candidates[:3]
-            print("[TargetCandidates] " + "; ".join(f"{k}/{a}/{kind}/score={score}" for score, _n, _idx, k, a, kind in top))
-        return candidates[0][3]
+            print("[TargetCandidates] " + "; ".join(
+                f"{key}/{name}/{kind}/tier={tier}/len={length}/fit={fit}"
+                for tier, length, _authored, fit, _pos, key, name, kind in candidates[:5]
+            ))
+        return candidates[0][5]
 
     def refine_action_with_target(self, action_type, target_id):
         kind = self.entity_kind(target_id)
@@ -1187,14 +1226,79 @@ class Game:
             return str(target_id).split(":", 1)[-1]
         return str(target_id or "")
 
+    def explicit_person_target_phrase(self, raw):
+        """Extract a person phrase from an explicit question without asserting existence."""
+        text = str(raw).strip()
+        normalized = self.normalize_action_example(text)
+        if not any(x in normalized for x in ("聞く", "聞きたい", "質問", "尋ね", "問いかけ")):
+            return None
+        matches = []
+        patterns = (
+            r"^(.{1,40}?)(?:に|へ)(?:話を)?(?:聞く|聞きたい|質問する|尋ねる|問いかける)",
+            r"(?:を|は|が|、|\s)([^、。！？?\s]{1,30})(?:に|へ)(?:話を)?(?:聞く|聞きたい|質問する|尋ねる|問いかける)",
+        )
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                phrase = match.group(1).strip(" 、。！？?\u3000")
+                if phrase:
+                    matches.append(phrase)
+        if not matches:
+            return None
+        phrase = min(matches, key=len)
+        if phrase in self.companion_aliases() or phrase in {"みんな", "全員", "仲間", "誰か"}:
+            return None
+        return phrase
+
+    def exact_npc_id(self, phrase):
+        """Return an authored NPC only when the complete name or alias matches."""
+        normalized_phrase = self.normalize_action_example(phrase)
+        for npc_id, npc in self.npcs.items():
+            names = [npc.get("name", ""), npc_id] + list(npc.get("aliases", []) or [])
+            if any(self.normalize_action_example(name) == normalized_phrase for name in names if name):
+                return npc_id
+        return None
+
     def resolve_target(self, raw, st):
-        """Resolve an explicitly named target from the current scenario scope."""
-        target_id = self.explicit_scene_target(raw, st)
+        """Resolve authored targets while keeping unknown people distinct from absent NPCs."""
+        person_phrase = self.explicit_person_target_phrase(raw)
+        if person_phrase:
+            npc_id = self.exact_npc_id(person_phrase)
+            if npc_id is None:
+                if self.debug:
+                    print(
+                        "[TargetRejected]"
+                        f"\ntarget_text={person_phrase}"
+                        "\nreason=explicit_person_phrase_not_authored"
+                    )
+                return {
+                    "target": person_phrase,
+                    "type": "UNRESOLVED_PERSON",
+                    "target_id": None,
+                    "resolved": False,
+                    "present": None,
+                }
+            target_id = npc_id
+        else:
+            target_id = self.target(raw, "inspect", None)
         if not target_id:
             return None
         kind = self.entity_kind(target_id)
         type_map = {"npc": "NPC", "object": "OBJECT", "location": "LOCATION", "surface": "OBJECT"}
-        return {"target": self.entity_public_name(target_id), "type": type_map.get(kind, kind.upper()), "target_id": target_id}
+        present = None
+        if st is not None:
+            if kind == "npc":
+                present = self.npc_present_here(target_id, st)
+            elif kind == "object":
+                present = self.object_visible_here(target_id, st)
+            elif kind == "location":
+                present = target_id == st.location or target_id in self.locs.get(st.location, {}).get("exits", [])
+        return {
+            "target": self.entity_public_name(target_id),
+            "type": type_map.get(kind, kind.upper()),
+            "target_id": target_id,
+            "resolved": True,
+            "present": present,
+        }
 
     def target_prompt_candidates(self, st):
         targets = self.get_available_targets(st)
@@ -1209,55 +1313,139 @@ class Game:
         probes = ("怪しいもの", "何かない", "気になるもの", "手掛かりはない", "手がかりはない")
         return text in exact_probes or any(x in text for x in probes)
 
-    def classify_intent(self, raw, target_info=None):
-        """Classify player intent separately from scenario consequences."""
+    def explicit_command(self, raw):
+        """Return formal commands before scenario and free-intent routing."""
         text = self.normalize_action_example(raw)
-        alternates = []
-        if any(x in text for x in ("clues", "手掛かり一覧", "手がかり一覧")):
-            major, minor, confidence = "メタ", "clues", 0.9
-        elif any(x in text for x in ("status", "状態")):
-            major, minor, confidence = "メタ", "status", 0.9
-        elif any(x in text for x in ("help", "ヘルプ")):
-            major, minor, confidence = "メタ", "help", 0.9
-        elif "見張りの様子を見る" in raw or ("様子を見る" in text and "見張" in text):
-            major, minor, confidence, alternates = "行動", "観察", 0.57, ["調査"]
-        elif any(x in text for x in ("聞く", "質問", "尋ね", "問い")):
-            major, minor, confidence = "会話", "質問", 0.9
-        elif any(x in text for x in ("相談", "意見")):
-            major, minor, confidence = "会話", "相談", 0.86
-        elif any(x in text for x in ("推理", "考察")):
-            major, minor, confidence = "会話", "推理", 0.84
-        elif any(x in text for x in (
-            "話", "雑談", "好きな食べ物", "しゃべ", "おしゃべり", "思い出", "昔話", "噂話", "世間話",
-            "失敗談", "怖い話", "天気の話", "困ったこと", "楽しかったこと", "暇つぶし", "について話す",
-        )) and not any(x in text for x in ("説得", "安心", "なだめ")):
-            major, minor, confidence = "会話", "雑談", 0.91
-        elif any(x in text for x in ("安心させ", "なだめ", "説得", "励ま", "落ち着かせ")):
-            major, minor, confidence = "行動", "影響", 0.88
-        elif any(x in text for x in ("移動", "向か", "行く", "へ行")):
-            major, minor, confidence = "行動", "移動", 0.86
-        elif any(x in text for x in ("調べ", "調査", "手掛かり", "手がかり", "探す", "探し")):
-            major, minor, confidence = "行動", "調査", 0.88
-        elif any(x in text for x in ("見る", "観察", "確認", "見張", "警戒")):
-            major, minor, confidence = "行動", "観察", 0.82
-        elif any(x in text for x in ("使う", "使用")):
-            major, minor, confidence = "行動", "使用", 0.84
-        elif any(x in text for x in ("休憩", "待機", "野営", "見張")):
-            major, minor, confidence = "行動", "観察", 0.74
-        else:
-            major, minor, confidence = "行動", "観察", 0.6
-            alternates = ["調査"]
-        return {"major": major, "minor": minor, "confidence": confidence, "alternates": alternates}
+        exact = {
+            "clues": "clues", "手掛かり一覧": "clues", "手がかり一覧": "clues",
+            "status": "status", "状態": "status", "help": "help", "ヘルプ": "help",
+            "quit": "quit", "終了": "quit",
+        }
+        if text in exact:
+            return exact[text]
+        clue_terms = ("手掛かり", "手がかり")
+        clue_operations = ("整理", "まとめ", "一覧", "確認")
+        if any(term in text for term in clue_terms) and any(op in text for op in clue_operations):
+            return "clues"
+        return None
+
+    def explicit_fallback_intent(self, raw):
+        """Resolve an explicitly stated speech act before semantic similarity or dice."""
+        text = self.normalize_action_example(raw)
+        if any(x in text for x in ("相談する", "相談しよう", "相談したい", "意見を求め", "意見を聞き", "話し合", "作戦を立て", "作戦会議")):
+            return {"major": "会話", "minor": "相談", "confidence": 1.0, "alternates": [], "explicit": True, "route": "explicit-speech-act"}
+        if any(x in text for x in ("推理する", "推理しよう", "考察する", "考察しよう", "みんなで推理", "一緒に推理")):
+            return {"major": "会話", "minor": "推理", "confidence": 1.0, "alternates": [], "explicit": True, "route": "explicit-speech-act"}
+        if "犯人" in text and any(x in text for x in ("誰", "思う", "考え")):
+            return {"major": "会話", "minor": "推理", "confidence": 0.98, "alternates": [], "explicit": True, "route": "explicit-speech-act"}
+        if any(x in text for x in ("話を聞く", "話を聞き", "質問する", "質問し", "尋ねる", "尋ね", "問いかけ", "教えて")):
+            return {"major": "会話", "minor": "質問", "confidence": 1.0, "alternates": [], "explicit": True, "route": "explicit-speech-act"}
+        return None
+
+    def fallback_intent_examples(self):
+        """Meaning examples used only after formal scenario routes fail."""
+        return {
+            "会話": {
+                "雑談": ["仲間と雑談する", "思い出を話す", "事件と関係ない話をする", "暇つぶしに話す"],
+                "質問": ["誰かに質問する", "どう思うか聞く", "理由を尋ねる", "答えを求める"],
+                "相談": ["仲間に相談する", "作戦を立てる", "次の行動を話し合う", "助言を求める"],
+                "推理": ["犯人について推理する", "公開情報から考える", "みんなで考察する", "仮説を立てる"],
+            },
+            "行動": {
+                "移動": ["別の場所へ移動する", "目的地へ向かう", "元の場所へ戻る"],
+                "観察": ["対象の様子を見る", "周囲を警戒する", "見張りを観察する"],
+                "調査": ["対象を詳しく調べる", "新しい手掛かりを探す", "周辺を探索する"],
+                "使用": ["道具を使う", "持ち物を使用する", "装置を動かす"],
+                "影響": ["相手を説得する", "相手を安心させる", "脅して従わせる"],
+                "待機": ["しばらく待つ", "休憩して時間を進める", "ここで野営する"],
+                "汎用": ["崖を登る", "箱を動かす", "岩をどかす", "自由な方法を試す"],
+            },
+            "メタ": {
+                "status": ["現在地や状態を確認する", "今の状況を表示する"],
+                "help": ["使い方を見る", "利用可能なコマンドを確認する"],
+            },
+        }
+
+    def lexical_explicit_intent(self, raw):
+        """Deterministic intent for clear non-conversation verbs."""
+        text = self.normalize_action_example(raw)
+        rules = (
+            (("安心させ", "なだめ", "説得", "励ま", "落ち着かせ"), "行動", "影響", 0.9),
+            (("移動", "向か", "行く", "へ行", "戻る"), "行動", "移動", 0.9),
+            (("調べ", "調査", "探す", "探し"), "行動", "調査", 0.9),
+            (("見る", "観察", "確認", "見張", "警戒"), "行動", "観察", 0.86),
+            (("使う", "使用"), "行動", "使用", 0.9),
+            (("休憩", "待機", "野営"), "行動", "待機", 0.9),
+            (("雑談", "おしゃべり", "昔話", "噂話", "世間話", "暇つぶし"), "会話", "雑談", 0.9),
+        )
+        for markers, major, minor, confidence in rules:
+            if any(marker in text for marker in markers):
+                return {"major": major, "minor": minor, "confidence": confidence, "alternates": [], "explicit": True, "route": "explicit-action"}
+        return None
+
+    def semantic_fallback_intent(self, raw):
+        examples = self.fallback_intent_examples()
+        labels, flat = [], []
+        for major, minors in examples.items():
+            for minor, phrases in minors.items():
+                start = len(flat)
+                flat.extend(phrases)
+                labels.append((major, minor, start, len(flat)))
+        vectors = self.get_embeddings([raw] + flat)
+        if not vectors:
+            return {"major": "行動", "minor": "汎用", "confidence": 0.5, "alternates": [], "explicit": False, "route": "offline-generic"}
+        raw_vector = vectors[0]
+        ranked = []
+        for major, minor, start, end in labels:
+            similarities = [self.cosine(raw_vector, vectors[index + 1]) for index in range(start, end)]
+            ranked.append((max(similarities) if similarities else 0.0, major, minor))
+        ranked.sort(reverse=True)
+        threshold = float(os.getenv("FALLBACK_INTENT_THRESHOLD", "0.62"))
+        tie_margin = float(os.getenv("FALLBACK_INTENT_TIE_MARGIN", "0.05"))
+        best_score, best_major, best_minor = ranked[0]
+        same_level = [
+            {"major": major, "minor": minor, "score": round(score, 4)}
+            for score, major, minor in ranked
+            if best_score - score <= tie_margin
+        ][:2]
+        if best_score < threshold and len(same_level) < 2 and len(ranked) > 1:
+            score, major, minor = ranked[1]
+            same_level.append({"major": major, "minor": minor, "score": round(score, 4)})
+        alternates = [item for item in same_level[1:]]
+        return {
+            "major": best_major,
+            "minor": best_minor,
+            "confidence": best_score,
+            "alternates": alternates,
+            "candidates": same_level,
+            "explicit": False,
+            "route": "embedding-hierarchy",
+        }
+
+    def classify_intent(self, raw, target_info=None):
+        """Classify meaning separately from scenario consequences."""
+        command = self.explicit_command(raw)
+        if command:
+            return {"major": "メタ", "minor": command, "confidence": 1.0, "alternates": [], "explicit": True, "route": "explicit-command"}
+        return (
+            self.explicit_fallback_intent(raw)
+            or self.lexical_explicit_intent(raw)
+            or self.semantic_fallback_intent(raw)
+        )
 
     def decide_ambiguous_intent(self, intent):
-        if intent.get("confidence", 1.0) >= 0.8 or not intent.get("alternates"):
+        """Roll only when semantic classification retained multiple viable meanings."""
+        alternatives = list(intent.get("alternates") or [])
+        if intent.get("explicit") or not alternatives:
             return None
-        primary = intent["minor"]
-        alternate = intent["alternates"][0]
+        candidates = [{"major": intent.get("major"), "minor": intent.get("minor"), "score": intent.get("confidence", 0.0)}] + alternatives
         roll = self.rng.randint(1, 100)
-        chosen = primary if roll <= 55 else alternate
-        intent["minor"] = chosen
-        return chosen
+        index = min(len(candidates) - 1, (roll - 1) * len(candidates) // 100)
+        chosen = candidates[index]
+        intent["major"] = chosen.get("major")
+        intent["minor"] = chosen.get("minor")
+        intent["alternates"] = [candidate for i, candidate in enumerate(candidates) if i != index]
+        return {"roll": roll, "candidates": candidates, "chosen": chosen}
 
     def intent_action_type(self, intent, target_id):
         kind = self.entity_kind(target_id)
@@ -1289,10 +1477,16 @@ class Game:
         print(f"major={intent.get('major')}")
         print(f"minor={intent.get('minor')}")
         print(f"confidence={intent.get('confidence'):.2f}")
+        if intent.get("route"):
+            print(f"route={intent.get('route')}")
+        if intent.get("explicit") is not None:
+            print(f"explicit={str(bool(intent.get('explicit'))).lower()}")
+        if intent.get("candidates"):
+            print("candidates=" + json.dumps(intent.get("candidates"), ensure_ascii=False))
         if intent.get("alternates"):
             print("alternates=" + json.dumps(intent.get("alternates"), ensure_ascii=False))
         if dice:
-            print(f"dice={dice}")
+            print("dice=" + json.dumps(dice, ensure_ascii=False))
 
     def log_intent_gate(self, raw, matched, reason):
         if not self.debug:
@@ -1302,159 +1496,119 @@ class Game:
         print(f"matched={str(bool(matched)).lower()}")
         print(f"reason={reason}")
 
-    def conversation_action(self, raw, intent, dice_choice=None, target="対象なし"):
+    def conversation_execution_type(self, intent):
+        return {
+            "相談": "consult",
+            "推理": "reason",
+            "質問": "conversation_question",
+            "雑談": "banter_action",
+        }.get(intent.get("minor"), "conversation")
+
+    def conversation_action(self, raw, intent, dice_choice=None, target="対象なし", target_id=None):
         self.log_intent_gate(raw, True, "conversation_intent")
         self.log_intent(target, intent, dice_choice)
-        return {"raw": raw, "action_type": "action", "target_id": None, "intent_mode": "scenario-intent-conversation", "intent": intent}
+        return {
+            "raw": raw,
+            "action_type": self.conversation_execution_type(intent),
+            "target_id": target_id,
+            "intent_mode": "scenario-intent-conversation",
+            "intent": intent,
+            "conversation_major": intent.get("major"),
+            "conversation_minor": intent.get("minor"),
+        }
 
     def judge(self, raw, st=None):
-        # v2.22.0: exact authored action checks precede explicit target routing.
+        """Scenario-first routing; Intent Layer is the single formal-route fallback."""
+        text = self.normalize_action_example(raw)
+
+        # 1. Explicit commands and their natural-language aliases.
+        command = self.explicit_command(raw)
+        if command:
+            return {"raw": raw, "action_type": "command", "target_id": None,
+                    "intent_mode": "explicit-command", "command": command,
+                    "intent": {"major": "メタ", "minor": command, "confidence": 1.0,
+                               "alternates": [], "explicit": True, "route": "explicit-command"}}
+
         companion = self.companion_target(raw)
-        exact_action_check = None if companion else self.match_exact_action_check(raw, st)
+
+        # 2. Scenario-authored exact actions.
+        exact_action_check = self.match_exact_action_check(raw, st)
         if exact_action_check:
             self.log_intent_gate(raw, True, "exact_action_check")
             return {"raw": raw, "action_type": "action_skill_check", "target_id": exact_action_check.get("id"), "intent_mode": "action-check-exact"}
 
-        target_info = None if companion else self.resolve_target(raw, st)
+        # 3. Scenario NPC/location/object/goal target resolution.
+        target_info = self.resolve_target(raw, st)
         explicit_target = (target_info or {}).get("target_id")
-        intent = self.classify_intent(raw, target_info)
+        if target_info and not target_info.get("resolved", True):
+            intent = self.classify_intent(raw, target_info)
+            dice_choice = self.decide_ambiguous_intent(intent)
+            self.log_intent_gate(raw, True, "unresolved_named_target")
+            self.log_intent(target_info.get("target", "未解決"), intent, dice_choice)
+            return {
+                "raw": raw,
+                "action_type": "unresolved_target",
+                "target_id": None,
+                "target_text": target_info.get("target"),
+                "intent_mode": "scenario-intent-unresolved-target",
+                "intent": intent,
+            }
+        if explicit_target is not None:
+            goal_hit = self.goal_intent_override(raw, explicit_target) if explicit_target in self.goal_targets() else None
+            if goal_hit:
+                action_type, mode = goal_hit
+                return {"raw": raw, "action_type": action_type, "target_id": explicit_target, "intent_mode": mode}
+            intent = self.classify_intent(raw, target_info)
+            dice_choice = self.decide_ambiguous_intent(intent)
+            kind = self.entity_kind(explicit_target)
+            if kind == "npc" and target_info.get("present") is False and intent.get("major") == "会話":
+                action_type = "ask"  # resolve() will return the established npc_absent result.
+            else:
+                action_type = self.intent_action_type(intent, explicit_target)
+            self.log_intent_gate(raw, True, "explicit_target")
+            self.log_intent(self.entity_public_name(explicit_target), intent, dice_choice)
+            return {"raw": raw, "action_type": action_type, "target_id": explicit_target,
+                    "target_present": target_info.get("present"),
+                    "intent_mode": "scenario-intent", "intent": intent,
+                    "conversation_major": intent.get("major"), "conversation_minor": intent.get("minor")}
+
+        # 4. Scenario formal route (embedding/exact author examples), before free fallback.
+        action_check = self.match_action_check(raw, st)
+        if action_check:
+            return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
+
+        # 5-8. Intent Layer is now the only fallback for route misses, including companions.
+        intent = self.classify_intent(raw, None)
         dice_choice = self.decide_ambiguous_intent(intent)
 
-        generic_keywords = ("休憩", "待機", "野営", "見張", "警戒")
-        named_legacy_target = None if explicit_target is not None else self.target(raw, "ask", st)
-        if companion is None and explicit_target is None and named_legacy_target is None and intent.get("major") == "会話":
-            return self.conversation_action(raw, intent, dice_choice)
+        if intent.get("major") == "メタ":
+            return {"raw": raw, "action_type": "command", "target_id": None,
+                    "intent_mode": "intent-command", "command": intent.get("minor"), "intent": intent}
 
-        if explicit_target is None and any(keyword in raw for keyword in generic_keywords):
-            self.log_intent_gate(raw, True, "generic_action_intent")
-            self.log_intent(raw, intent, dice_choice)
-            return self.resolve_generic_action(raw, intent)
+        if companion is not None or intent.get("major") == "会話":
+            # Companion names select participants, but never bypass Intent Layer.
+            return self.conversation_action(
+                raw, intent, dice_choice,
+                self.entity_public_name(companion) if companion else "対象なし",
+                target_id=companion,
+            )
 
-        if explicit_target is None and self.is_targetless_probe(raw):
+        if self.is_targetless_probe(raw):
             candidates = self.target_prompt_candidates(st)
             self.log_intent_gate(raw, True, "targetless_probe")
             self.log_intent("未指定", intent, dice_choice)
-            return {
-                "raw": raw,
-                "action_type": "target_prompt",
-                "target_id": None,
-                "intent_mode": "scenario-intent-target-prompt",
-                "intent": intent,
-                "candidates": candidates,
-            }
+            return {"raw": raw, "action_type": "target_prompt", "target_id": None,
+                    "intent_mode": "scenario-intent-target-prompt", "intent": intent, "candidates": candidates}
 
-        if explicit_target is not None:
-            self.log_intent_gate(raw, True, "explicit_target")
-            action_type = self.intent_action_type(intent, explicit_target)
-            if self.debug:
-                reason_kind = self.entity_kind(explicit_target)
-                print(f"[ActionCheckRoute]\ninput={raw}\ndecision=skipped\nreason=explicit_{reason_kind}_target")
-                generic_skill = self.infer_generic_skill_action(raw)
-                if generic_skill:
-                    print(f"[GenericSkillRoute]\ninput={raw}\nskill={generic_skill['skill']}\ndecision=suppressed\nreason=explicit_{reason_kind}_target\ntarget={explicit_target}")
-            self.log_intent(self.entity_public_name(explicit_target), intent, dice_choice)
-            return {"raw": raw, "action_type": action_type, "target_id": explicit_target, "intent_mode": "scenario-intent", "intent": intent}
-
-        self.log_intent_gate(raw, False, "legacy_action_intent")
-        explicit_target = companion or self.explicit_scene_target(raw, st)
-        if explicit_target:
-            if self.debug:
-                reason_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
-                print(
-                    f"[ActionCheckRoute]\ninput={raw}\ndecision=skipped"
-                    f"\nreason=explicit_{reason_kind}_target"
-                )
-        else:
-            action_check = self.match_action_check(raw, st)
-            if action_check:
-                return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
-        if companion:
-            action_type, mode = self.embedded_action_intent(raw, allowed=["consult", "ask"])
-            action_type = "consult" if action_type not in {"consult", "ask"} else action_type
-            target_id = companion
-        else:
-            preliminary_target = explicit_target or self.target(raw, "inspect", st)
-            if preliminary_target is None:
-                preliminary_target = self.surface_target(raw, st)
-            kind = self.entity_kind(preliminary_target)
-            if kind == "location" and st is not None and preliminary_target != st.location:
-                action_type, mode = "move", "target-kind"
-                target_id = preliminary_target
-            elif kind == "location":
-                action_type, mode = self.embedded_action_intent(raw, allowed=["area_search", "inspect", "move"])
-                if action_type == "inspect" and preliminary_target == st.location:
-                    action_type = "area_search"
-                target_id = None if action_type == "area_search" else preliminary_target
-            elif kind == "surface":
-                # Scene-surface objects are descriptive objects, not goal targets.
-                action_type, mode = self.embedded_action_intent(raw, allowed=["inspect", "area_search"])
-                if action_type == "area_search":
-                    # If the user named a specific surface thing, inspect it rather than re-search area.
-                    action_type = "inspect"
-                target_id = preliminary_target
-            elif kind == "object":
-                action_type, mode = self.embedded_action_intent(raw, allowed=["inspect", "skill_check"])
-                target_id = self.target(raw, action_type, st) or preliminary_target
-            elif kind == "npc":
-                # GOAL_INTENT_OVERRIDE_v2150
-                # If this NPC is also a goal target, goal.intent_examples can resolve the action
-                # before generic ask/inspect routing. This is data-driven, not a keyword rule.
-                goal_hit = self.goal_intent_override(raw, preliminary_target) if preliminary_target in self.goal_targets() else None
-                if goal_hit:
-                    action_type, mode = goal_hit
-                    target_id = preliminary_target
-                else:
-                    if preliminary_target in self.goal_targets():
-                        allowed = ["ask", "resolve_goal", "inspect"]
-                    else:
-                        allowed = ["ask", "inspect"]
-                    action_type, mode = self.embedded_action_intent(raw, allowed=allowed)
-                    target_id = self.target(raw, action_type, st) or preliminary_target
-            else:
-                action_type, mode = self.embedded_action_intent(raw)
-                target_id = self.target(raw, action_type, st)
-                # A consult requires an explicit companion target. Preserve
-                # targetless input as a generic action instead of inventing a search.
-                if action_type == "consult" and target_id is None:
-                    action_type = "action"
-                if action_type == "area_search":
-                    target_id = None
-                action_type = self.refine_action_with_target(action_type, target_id)
-        if self.debug:
-            if explicit_target:
-                explicit_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
-                print(
-                    f"[ExplicitTargetRoute]\ninput={raw}\ntarget={explicit_target}"
-                    f"\nkind={explicit_kind}\naction={action_type}\ndecision=selected"
-                )
-            print(f"[ActionRoute] input={raw} route={mode} action={action_type} target={target_id}")
         generic_skill = self.infer_generic_skill_action(raw)
-        generic_allowed = self.should_route_generic_skill_action(action_type, target_id)
-        if generic_skill and generic_allowed:
-            if self.debug:
-                print(
-                    f"[GenericSkillRoute]\ninput={raw}"
-                    f"\nskill={generic_skill['skill']}\ndecision=selected"
-                )
-            return {
-                "raw": raw,
-                "action_type": "generic_skill_action",
-                "target_id": None,
-                "intent_mode": "generic-skill-action",
-                "skill": generic_skill["skill"],
-                "action_text": raw,
-            }
-        if generic_skill and not generic_allowed and self.debug:
-            if explicit_target:
-                suppressed_kind = "companion" if str(explicit_target).startswith("companion:") else self.entity_kind(explicit_target)
-            else:
-                suppressed_kind = self.entity_kind(target_id)
-            print(
-                f"[GenericSkillRoute]\ninput={raw}"
-                f"\nskill={generic_skill['skill']}\ndecision=suppressed"
-                f"\nreason=explicit_{suppressed_kind}_target\ntarget={target_id}"
-            )
-        return {"raw": raw, "action_type": action_type, "target_id": target_id, "intent_mode": mode}
+        if generic_skill and intent.get("minor") in {"調査", "観察", "影響", "使用", "移動"}:
+            return {"raw": raw, "action_type": "generic_skill_action", "target_id": None,
+                    "intent_mode": "intent-generic-skill", "intent": intent,
+                    "skill": generic_skill["skill"], "action_text": raw}
+
+        self.log_intent_gate(raw, True, "intent_generic_action")
+        self.log_intent(raw, intent, dice_choice)
+        return self.resolve_generic_action(raw, intent)
 
     def eligible_action_checks(self, st=None):
         location = st.location if st is not None else None
@@ -2453,9 +2607,64 @@ class Game:
             line = f"GM: {action_text}としているんだね。状況を少し進めます。"
         return [line], {"status": "ok", "category": "generic_action", "action_text": action_text}, [{"type": "generic_action", "action_text": action_text}]
 
+    def resolve_conversation_intent(self, it, st):
+        minor = (it.get("intent") or {}).get("minor") or it.get("conversation_minor") or "会話"
+        target_id = it.get("target_id")
+        if target_id and str(target_id).startswith("companion:"):
+            name = str(target_id).split(":", 1)[-1]
+            if minor == "相談":
+                line = f"GM: {name}に意見を求めます。"
+            elif minor == "推理":
+                line = f"GM: {name}と、今分かっていることから推理します。"
+            elif minor == "質問":
+                line = f"GM: {name}に問いかけます。"
+            else:
+                line = f"GM: {name}に話を振ります。"
+        else:
+            line = {
+                "相談": "GM: 仲間たちに相談を持ちかけます。",
+                "推理": "GM: 仲間たちと、今分かっていることから推理します。",
+                "質問": "GM: 仲間たちに問いかけます。",
+                "雑談": "GM: 仲間たちに話を振ります。",
+            }.get(minor, "GM: 仲間たちに話を振ります。")
+        category = {"相談": "consult", "推理": "reason", "質問": "conversation_question", "雑談": "banter"}.get(minor, "conversation")
+        return [line], {"status": "ok", "category": category, "conversation_minor": minor}, [{"type": category}]
+
+    def resolve_unresolved_target(self, it, st):
+        target_text = str(it.get("target_text") or "その対象")
+        return [f"GM: 『{target_text}』に当たる人物や対象は、今の場面では特定できません。"], {
+            "status": "fail", "category": "target_resolution_failed", "target_text": target_text
+        }, []
+
+    def resolve_command(self, it, st):
+        command = it.get("command")
+        if command == "quit":
+            st.ended = True
+            return ["GM: セッションを終了します。"], {"status": "ok", "category": "command"}, []
+        if command == "clues":
+            if not st.discovered:
+                return ["GM: まだ公開済みの手掛かりはありません。"], {"status": "ok", "category": "clues"}, []
+            lines = ["GM: 現在の手掛かりです。"]
+            for did in sorted(st.discovered):
+                clue = self.disc.get(did, {})
+                lines.append("GM: ・" + str(clue.get("public_text") or clue.get("name") or did))
+            return lines, {"status": "ok", "category": "clues"}, []
+        if command == "status":
+            location = self.locs.get(st.location, {}).get("name", st.location)
+            return [f"GM: 現在地は{location}です。", f"GM: 公開済みの手掛かりは{len(st.discovered)}件です。"], {"status": "ok", "category": "status"}, []
+        if command == "help":
+            return ["GM: 場所への移動、NPCへの質問、物や周囲の調査、仲間との相談・推理を自然な文章で入力できます。", "GM: 補助コマンドは clues / status / help / quit です。"], {"status": "ok", "category": "help"}, []
+        return ["GM: そのコマンドは認識できません。"], {"status": "fail", "category": "command"}, []
+
     def resolve(self, it, st):
+        if it["action_type"] == "command":
+            return self.resolve_command(it, st)
         if it["action_type"] == "target_prompt":
             return self.resolve_target_prompt(it, st)
+        if it["action_type"] == "unresolved_target":
+            return self.resolve_unresolved_target(it, st)
+        if it["action_type"] in {"reason", "conversation_question", "banter_action", "conversation"}:
+            return self.resolve_conversation_intent(it, st)
         if it["action_type"] == "generic_action":
             return self.resolve_generic_scenario_action(it, st)
         if it["action_type"] == "action_skill_check":
@@ -2465,7 +2674,7 @@ class Game:
         if it["action_type"] == "area_search":
             return self.area_search(it, st)
         if it["action_type"] == "consult":
-            return self.consult_companion(it, st)
+            return self.resolve_conversation_intent(it, st)
         if it["action_type"] == "move":
             return self.move(it["target_id"], st)
         if it["action_type"] == "resolve_goal":
@@ -2613,6 +2822,163 @@ class Game:
             return ["これは正式な手がかり対象ではない。新しい情報を足さない。"]
         return []
 
+    def public_case_facts(self, st):
+        """Return only facts already public to the table for LLM conversation grounding.
+
+        Scenario authors can define public_case_facts explicitly. Otherwise, opening
+        prose is used conservatively, together with discovered public_text entries.
+        This shapes the LLM input; it does not inspect or rewrite generated answers.
+        """
+        authored = [
+            str(item).strip()
+            for item in (self.sc.get("public_case_facts", []) or [])
+            if str(item).strip()
+        ]
+        if authored:
+            facts = authored
+        else:
+            facts = []
+            excluded = (
+                "主な場所", "調査を進める", "移動、調査", "状況によって",
+                "さて、どうしますか", "補助:", "├", "└", "┬", "│",
+            )
+            for line in self.sc.get("opening", []) or []:
+                text = re.sub(r"^[^:：]{1,20}[:：]\s*", "", str(line)).strip()
+                if not text or any(token in str(line) for token in excluded):
+                    continue
+                if len(text) >= 8:
+                    facts.append(text)
+        for did in sorted(st.discovered):
+            public_text = str(self.disc.get(did, {}).get("public_text", "")).strip()
+            if public_text:
+                facts.append(public_text)
+        return list(dict.fromkeys(facts))
+
+    def conversation_goal(self, it):
+        """A short purpose statement, not a scripted dialogue structure."""
+        minor = (it.get("intent") or {}).get("minor")
+        return {
+            "相談": "今できる具体的な行動案や選択肢を話す。",
+            "推理": "公開事実を根拠に、未確定の仮説や別の可能性を話す。",
+            "質問": "問いに直接答え、分からないことは分からないとする。",
+            "雑談": "現在の場面や直前の話題から自然に話す。",
+        }.get(minor, "現在の行動と場面に自然に反応する。")
+
+    def participation_expectation(self, it):
+        action_type = str(it.get("action_type") or "")
+        explicit = action_type in {"consult", "reason", "conversation_question", "banter_action"}
+        return {
+            "mode": "explicit_response_requested" if explicit else "optional_response",
+            "minimum_natural_responses": 1 if explicit else 0,
+            "reason": "プレイヤーが仲間へ明示的に返答を求めている。" if explicit else "仲間への明示的な返答要求ではない。",
+        }
+
+    def interaction_pattern(self, it):
+        minor = (it.get("intent") or {}).get("minor")
+        return {
+            "相談": ["行動案", "直前発言への反応", "別案または優先順位"],
+            "推理": ["未確定の仮説", "直前仮説への反論または留保", "別の可能性"],
+            "質問": ["問いへの直接回答", "必要なら補足または異論"],
+            "雑談": ["話題提示", "直前発言への反応または派生"],
+        }.get(minor, ["現在の行動や場面への自然な反応"])
+
+    def dialogue_roles(self, it):
+        """Describe conversational jobs without selecting speakers or wording."""
+        minor = (it.get("intent") or {}).get("minor")
+        roles = {
+            "相談": [
+                {"role": "proposal", "instruction": "最初の人物が具体的な行動案を一つ出す。"},
+                {"role": "reaction", "instruction": "別の人物が直前の案へ賛成、懸念、反論のいずれかで直接反応する。"},
+                {"role": "alternative", "instruction": "必要なら第三者が別案または優先順位を加える。"},
+            ],
+            "推理": [
+                {"role": "hypothesis", "instruction": "最初の人物が公開事実を二つ以上結び付け、未確定の仮説を出す。"},
+                {"role": "challenge", "instruction": "別の人物が直前の仮説へ反論、留保、弱点指摘のいずれかで直接反応する。"},
+                {"role": "alternative", "instruction": "必要なら第三者が異なる可能性を加える。行動決定を主目的にしない。"},
+            ],
+            "質問": [
+                {"role": "answer", "instruction": "問いに直接答える。分からない場合は分からないと述べる。"},
+                {"role": "supplement", "instruction": "必要なら別の人物が補足または異論を加える。"},
+            ],
+            "雑談": [
+                {"role": "topic", "instruction": "一人が場面または直前の話題から自然に話題を出す。"},
+                {"role": "response", "instruction": "別の人物が直前発言へ反応し、少しだけ話題を派生させる。"},
+            ],
+        }
+        return roles.get(minor, [
+            {"role": "reaction", "instruction": "現在の行動や場面へ自然に反応する。"}
+        ])
+
+    def speech_profiles(self):
+        """Compact positive speech guidance; no output rewriting is performed."""
+        return {
+            "ニコ": {
+                "first_person": "私",
+                "tone": "柔らかく、些細なものから昔話や妙な連想へ飛ぶ。",
+                "preferred_endings": ["だよ", "かな", "かも", "思い出しちゃった"],
+                "rhythm": "落ち着いた短文から連想を一つ広げる。",
+            },
+            "ピピ": {
+                "first_person": "私",
+                "tone": "穏やかで、人の体調や気持ちを気に掛ける。",
+                "preferred_endings": ["だよ", "だね", "かな", "無理しないでね"],
+                "rhythm": "相手への気遣いを短く添える。",
+            },
+            "クロ": {
+                "first_person": "俺",
+                "tone": "勢いがあり、事件を面白がって少し大げさに話す。",
+                "preferred_endings": ["ぜ", "だろ", "じゃねえか", "って"],
+                "rhythm": "短く勢いよく、ホラや大胆な仮説を一つ加える。",
+            },
+            "ガラン": {
+                "first_person": "俺",
+                "tone": "率直で行動的。考え込むより試す方向へ話す。",
+                "preferred_endings": ["ぜ", "だろ", "行こう", "やってみよう"],
+                "rhythm": "具体的な行動を簡潔に提案する。",
+            },
+        }
+
+    def public_fact_graph(self, st):
+        """Return structured public facts for relation-building by the LLM.
+
+        Scenario authors may define public_fact_graph explicitly. The fallback is
+        deliberately shallow: it classifies already-public text without inferring
+        hidden relations or truth.
+        """
+        authored = self.sc.get("public_fact_graph", []) or []
+        if authored:
+            return authored
+
+        graph = []
+        for index, text in enumerate(self.public_case_facts(st), start=1):
+            fact = {
+                "id": f"public_fact_{index}",
+                "statement": text,
+                "status": "public",
+            }
+            if "行方不明" in text:
+                fact["event_type"] = "missing_person"
+                if "ユアン" in text:
+                    fact["subject"] = "ユアン"
+            elif "青い光" in text or "妙な明かり" in text:
+                fact["event_type"] = "unusual_light"
+                fact["subject"] = "低い青い光"
+                if "岬" in text:
+                    fact["location"] = "岬の下"
+            elif "灯が消" in text or "灯台の灯" in text:
+                fact["event_type"] = "lighthouse_light_out"
+                fact["subject"] = "灯台の灯"
+            elif "岩礁" in text or "乗り上げ" in text:
+                fact["event_type"] = "near_shipwreck"
+                fact["subject"] = "船"
+            elif "霧" in text:
+                fact["event_type"] = "weather"
+                fact["subject"] = "霧"
+            else:
+                fact["event_type"] = "public_statement"
+            graph.append(fact)
+        return graph
+
     def packet(self, it, ev, st):
         target_id = it.get("target_id")
         obs = self.companion_surface_observations(target_id)
@@ -2669,9 +3035,13 @@ class Game:
                 "action_type": it.get("action_type"),
                 "current_location": current_location,
                 "target_id": target_id,
+                "intent_major": (it.get("intent") or {}).get("major"),
+                "intent_minor": (it.get("intent") or {}).get("minor"),
                 "revealed_this_turn": sorted(self.event_revealed_discoverables(ev)),
             },
             "current_observations": [x for x in obs if x],
+            "conversation_goal": self.conversation_goal(it),
+            "speech_profiles": self.speech_profiles(),
             "recent_companion_lines": {
                 "label": "reference_only_past_turn",
                 "previous_scene": previous_context,
@@ -2679,11 +3049,17 @@ class Game:
                 "usage": history_usage,
             },
             "safety": [
-                "current_observationsにない情報を、知っている事実として言わない。",
-                "仮説や冗談は許可するが、未発見情報や正解を根拠として使わず、確定させない。",
-                "recent_companion_linesは過去の参考会話であり、世界設定や発見済み情報として扱わない。",
+                "current_observationsだけが現在目の前に存在すると確認された表層情報である。",
+                "player_inputは依頼・質問であり、そこに含まれる人物・物・状態が実在する証拠ではない。",
+                "recent_companion_linesは会話履歴であり、観察記録や世界設定ではない。",
+                "public_case_factsがある場合、それは卓に公開済みの事実として相談・推理・質問の根拠にしてよい。",
+                "仮説や冗談は許可するが、未発見情報や正解を確定事実として扱わない。",
+                "対象が未解決または不在なら、その人物が存在・応答・拒否・沈黙した事実を作らない。",
             ],
         }
+        intent_minor = (it.get("intent") or {}).get("minor")
+        if intent_minor in {"推理", "相談", "質問"}:
+            packet["public_case_facts"] = self.public_case_facts(st)
         requested = self.requested_companions(it.get("raw", ""))
         if requested:
             packet["requested_companions"] = requested
@@ -2876,10 +3252,17 @@ class Game:
             "仲間発言はsafe_banter_packet.current_observations、場所、対象、行動、過去の公開情報だけを根拠にする。"
             "discovery_log_lines_for_contextは、正式発見を後段でGM表示するための専用情報であり、仲間には未公開である。仲間発言の根拠として使用せず、内容を先回りして断定、要約、言い換えしない。"
             "result_category が no_reveal / surface_inspect / object_not_present / npc_absent / move なら、重要な手掛かりがあるふりをしない。\n\n"
-            "【情報境界・必須】current_observationsは表層情報である。"
-            "仲間は未公開情報、内部情報、正解ルートを知らない。"
-            "仮説、冗談、勘違いは許可するが、確定事実や攻略情報として扱わない。"
-            "過去の仲間台詞を世界設定や発見済み情報として扱わない。\n\n"
+            "【情報境界・必須】current_observationsだけが現在目の前に存在すると確認された表層情報である。"
+            "player_inputは依頼・質問であり、そこに含まれる人物・物・状態が実在する証拠ではない。"
+            "recent_companion_linesは会話履歴であり、観察記録や世界設定ではない。"
+            "仲間は未公開情報、内部情報、正解ルートを知らない。仮説、冗談、勘違いは許可するが、確定事実や攻略情報として扱わない。"
+            "current_event.intent_minorが相談・推理・質問・雑談なら、safe_banter_packet.conversation_goalの目的に沿う。"
+            "public_case_factsがある場合は公開済み事実として使ってよい。推理は未確定の仮説、相談は具体的な行動案、質問は問いへの直接回答を中心にする。"
+            "仲間へ明示的に相談・質問・推理を求められた場合は、指定された人物または自然な人物が応答する。"
+            "speech_profilesは望ましい口調の正例であり、一人称、語尾、テンポの安定に使う。文面を固定せず自然に言い換える。"
+            "requested_companionsが1名なら、その人物だけが発言する。全員指定なら全員が発言可能だが、無理に同じ内容を繰り返さない。"
+            "recent_companion_linesと同じ台詞や、その単なる言い換えを再出力せず、必ず反応・発展・別視点のいずれかを加える。"
+            "対象が不在・未解決の場合、その対象が応答、拒否、沈黙したように描写しない。\n\n"
             + self.companion_banter_prompt()
         )
         body = {
@@ -2909,7 +3292,7 @@ class Game:
         out = ""
         for url in urls:
             try:
-                data = self.post_json(url, body, int(os.getenv("TABLE_TURN_TIMEOUT", os.getenv("GM_LINE_REWRITE_TIMEOUT", "60"))), "TABLE_TURN")
+                data = self.post_json(url, body, int(os.getenv("TABLE_TURN_TIMEOUT", os.getenv("GM_LINE_REWRITE_TIMEOUT", "90"))), "TABLE_TURN")
                 choice = data.get("choices", [{}])[0]
                 if self.debug_llm or self.debug:
                     print("[TABLE_TURN_CHOICE]", repr(choice))
