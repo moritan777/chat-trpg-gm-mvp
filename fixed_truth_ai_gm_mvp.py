@@ -21,8 +21,6 @@ import time
 import unicodedata
 import urllib.parse
 from pathlib import Path
-
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 VERSION = "v2.22.0 [action-routing-guards]"
 STANDARD_SKILLS = {
     "investigation": 0,
@@ -263,16 +261,6 @@ class Game:
             "【履歴と行数・必須】\n"
             "仲間発言は0〜5行。参加者指定がなければ必要な人物だけ話し、全員や5行を埋めない。同じ人物の短い再応答もよい。同じ人物が連続して複数行話すのは稀。"
             "過去台詞をコピーまたは言い換え再出力しない。"
-        )
-
-    def companion_banter_prompt_compact(self):
-        return (
-            "【仲間】話者はニコ、ピピ、クロ、ガランのみ。仲間発言は0〜5行。"
-            "【会話・任意】場面への感想、最初から仲間へ話しかけてもよい。独立コメントより働きかけと短い応答が自然なら選べる。短い応答、仮説を許可。"
-            "事実は現在のGM事実、正式発見、場所・対象・行動、過去の公開情報だけ。"
-            "仮説、冗談、勘違い、過去の仲間台詞を確定事実や攻略情報にしない。"
-            "過去台詞をコピーまたは言い換え再出力しない。"
-            "正式発見は後続のGM行で原文表示されるため詳しく反復しない。"
         )
 
     def recent_companion_lines(self, limit=5):
@@ -2892,7 +2880,7 @@ class Game:
             "仲間は未公開情報、内部情報、正解ルートを知らない。"
             "仮説、冗談、勘違いは許可するが、確定事実や攻略情報として扱わない。"
             "過去の仲間台詞を世界設定や発見済み情報として扱わない。\n\n"
-            + self.companion_banter_prompt_compact()
+            + self.companion_banter_prompt()
         )
         body = {
             "model": self.llm_model(),
@@ -3170,6 +3158,10 @@ def main():
     game = Game(args.scenario_dir, dbg_judge, dbg_llm, dbg_emb, args.dice_total, args.skill_dice_total, args.dice_seed)
     st = State(game.sc["opening_scene"])
     print("チャット型TTRPG GM MVP " + VERSION)
+
+    print("stdout encoding =", sys.stdout.encoding)
+    print("default encoding =", sys.getdefaultencoding())
+
     print("LLM:", game.llm_desc())
     print("Embedding:", game.emb_desc())
     print("Player Skills:", json.dumps(game.player.get("skills", {}), ensure_ascii=False))
