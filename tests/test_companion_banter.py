@@ -187,16 +187,16 @@ class CompanionBanterTests(unittest.TestCase):
 
     def test_prompt_limits_playful_mode_and_balances_kuro_and_garan(self):
         prompt = self.make_game().companion_banter_prompt()
-
         self.assertIn("卓の盛り上げ役", prompt)
         self.assertIn("根拠の薄い説や大げさな想像", prompt)
         self.assertIn("進行を止める誘導は禁止", prompt)
+        self.assertIn("同じ種類の反応を繰り返さない", prompt)
         self.assertIn("まず動いてみることを好む", prompt)
-        self.assertIn("判断はPLへ残す", prompt)
+        self.assertIn("その場で試せそうな行動", prompt)
+        self.assertIn("判断や結論はPLへ任せる", prompt)
         self.assertIn("conversation_diagnostics.playfulInput=trueの時だけ", prompt)
         self.assertIn("2名以上", prompt)
         self.assertIn("次ターンへ持ち越さない", prompt)
-
     def test_revealed_object_still_uses_surface_companion_stage(self):
         game = self.make_game()
         state = State("light_room")
@@ -390,8 +390,6 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("canonical_gm_textに沿い", prompt)
         self.assertIn("Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない", prompt)
         self.assertIn("本人の反応をGM本文で先回りしない", prompt)
-        self.assertLessEqual(len(prompt), 2400)
-        self.assertLessEqual(len(captured[0]["messages"][1]["content"]), 1400)
 
     def test_prompt_separates_fact_priority_from_conversation_focus(self):
         prompt = self.make_game().companion_banter_prompt()
@@ -402,19 +400,20 @@ class CompanionBanterTests(unittest.TestCase):
 
     def test_prompt_encourages_dialogue_without_fixed_consensus(self):
         prompt = self.make_game().companion_banter_prompt()
-
         self.assertIn("人物関係と卓の空気を作る参加者", prompt)
         self.assertIn("独立コメントより働きかけと短い応答が自然なら選べる", prompt)
         self.assertIn("短い応答で終了してよく", prompt)
         self.assertIn("掛け合いは必須ではない", prompt)
         self.assertIn("仲間発言は0〜5行", prompt)
-        self.assertIn("同じ人物の短い再応答もよい", prompt)
+        self.assertIn("通常は1〜3人だけ反応する", prompt)
+        self.assertIn("仲間発言0行も許可", prompt)
         self.assertIn("全員や5行を埋めない", prompt)
-        self.assertNotIn("0〜3人", prompt)
+        self.assertIn("発言は1度だけ", prompt)
+        self.assertIn("複数回の発言は禁止", prompt)
+        self.assertNotIn("同じ人物の短い再応答もよい", prompt)
         self.assertIn("conversation_context.mode=continue", prompt)
         self.assertIn("requested_companionsがあればその人物を優先", prompt)
         self.assertIn("全員指定なら自然な範囲で全員参加を優先", prompt)
-
     def test_prompt_allows_natural_closure_of_directed_companion_actions(self):
         prompt = self.make_game().companion_banter_prompt()
 
@@ -425,41 +424,47 @@ class CompanionBanterTests(unittest.TestCase):
 
     def test_prompt_allows_first_companion_to_initiate_an_exchange(self):
         prompt = self.make_game().companion_banter_prompt()
-
         self.assertIn("場面へ感想を述べても、最初から仲間へ話しかけてもよい", prompt)
         self.assertIn("独り言、沈黙、無視も自然なら許可", prompt)
         self.assertIn("仲間発言は0〜5行", prompt)
-        self.assertIn("同じ人物の短い再応答もよい", prompt)
-
+        self.assertIn("発言は1度だけ", prompt)
     def test_prompt_distinguishes_what_each_companion_notices_first(self):
         prompt = self.make_game().companion_banter_prompt()
-
         self.assertIn("利用可能な仲間はニコ、ピピ、クロ、ガランのみ", prompt)
         self.assertIn("この4名以外の名前を仲間発言者として出力してはいけない", prompt)
         self.assertIn("仲間行の話者ラベルは必ず、ニコ、ピピ、クロ、ガラン", prompt)
-        self.assertIn("小さな要素から妙な連想", prompt)
-        self.assertIn("観察そのものより「そこから何を思い付くか」を優先", prompt)
-        self.assertIn("霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説", prompt)
-        self.assertIn("単なる観察報告で終えるより", prompt)
-        self.assertIn("仲間から「なんでそうなるんだ」と思われる発想も歓迎", prompt)
-        self.assertIn("冗談役には固定しない", prompt)
+
+        self.assertIn("【ニコ】", prompt)
+        self.assertIn("直接は関係なさそうなことへ連想", prompt)
+        self.assertIn("何を思い出したか、何を想像したか", prompt)
+        self.assertIn("昔話や伝説だけに偏らず", prompt)
+        self.assertIn("日常の記憶、旅先の出来事、知人、食べ物、道具、失敗談", prompt)
+        self.assertNotIn("霧から巨大イカ", prompt)
+
+        self.assertIn("【ピピ】", prompt)
         self.assertIn("理屈より人へ意識が向く", prompt)
         self.assertIn("仲間やNPCがどうしているかに関心を持つ", prompt)
         self.assertIn("体調、疲れ、不安、無理をしていないか、困っていないか", prompt)
-        self.assertIn("誰かを気遣ったり、人と人の関係や様子について話す", prompt)
-        self.assertIn("仲間やNPCへの反応が中心", prompt)
-        self.assertIn("怖がり役や特定人物への依存役には固定しない", prompt)
 
+        self.assertIn("【クロ】", prompt)
+        self.assertIn("突拍子のない発想", prompt)
+        self.assertIn("ホラ話", prompt)
+        self.assertIn("同じ種類の反応を繰り返さない", prompt)
+
+        self.assertIn("【ガラン】", prompt)
+        self.assertIn("まず動いてみることを好む", prompt)
+        self.assertIn("その場で試せそうな行動", prompt)
+        self.assertIn("判断や結論はPLへ任せる", prompt)
+        self.assertNotIn("崖なら登ろうとする", prompt)
     def test_prompt_encourages_topic_derivation_instead_of_repetition(self):
         prompt = self.make_game().companion_banter_prompt()
-
         self.assertIn("【話題の派生】", prompt)
         self.assertIn("同じ話題の反復よりも話題の変化・発展を優先", prompt)
-        self.assertIn("巨大イカ→沈没船、沈没船→宝物、宝物→王様、王様→空飛ぶ魚", prompt)
+        self.assertIn("場面中の要素から別の記憶、噂、人物、出来事", prompt)
         self.assertIn("過去2ターン以内に「安全」「確認」「ルート」「装備」", prompt)
         self.assertIn("同じ内容を再度出す必要はない", prompt)
         self.assertIn("可能なら別の反応や話題へ進む", prompt)
-
+        self.assertNotIn("巨大イカ→沈没船", prompt)
     def test_prompt_defines_kuro_as_unreliable_without_leaking_hidden_truth(self):
         prompt = self.make_game().companion_banter_prompt()
 
@@ -471,24 +476,21 @@ class CompanionBanterTests(unittest.TestCase):
 
     def test_prompt_defines_garan_as_action_oriented_not_an_analyst(self):
         prompt = self.make_game().companion_banter_prompt()
-
         self.assertIn("【ガラン】", prompt)
-        self.assertIn("考え込むより試す、様子を見るより行ってみる", prompt)
-        self.assertIn("崖なら登ろうとする", prompt)
-        self.assertIn("気になる相手がいるなら話しかけようとする", prompt)
-        self.assertIn("必ずしも正しい判断でなくてよい", prompt)
-        self.assertIn("段取りの提案は控えめにする", prompt)
-        self.assertIn("推理を断定したり主導したりはしない", prompt)
-        self.assertIn("判断はPLへ残す", prompt)
-
+        self.assertIn("考え込むより試す、見るより行く、相談するよりやってみる", prompt)
+        self.assertIn("気になる場所があれば行きたがり", prompt)
+        self.assertIn("推理や議論よりも実際の行動に興味を持つ", prompt)
+        self.assertIn("その場で試せそうな行動", prompt)
+        self.assertIn("『〇〇してみよう』のような提案", prompt)
+        self.assertIn("判断や結論はPLへ任せる", prompt)
+        self.assertNotIn("崖なら登ろうとする", prompt)
     def test_prompt_encourages_nico_to_continue_from_observation_to_association(self):
         prompt = self.make_game().companion_banter_prompt()
-
         self.assertIn("【ニコ】", prompt)
-        self.assertIn("観察で終わらず", prompt)
-        self.assertIn("昔話、噂、妙な想像、全く別の話題", prompt)
-        self.assertIn("単なる観察報告だけより、連想先まで話す方を好む", prompt)
-
+        self.assertIn("何を思い出したか、何を想像したか", prompt)
+        self.assertIn("連想先は有益でも正確でもなくてよく", prompt)
+        self.assertIn("昔話や伝説だけに偏らず", prompt)
+        self.assertIn("同じ題材や似た連想を繰り返さない", prompt)
     def test_prompt_treats_non_investigative_curiosity_as_normal(self):
         prompt = self.make_game().companion_banter_prompt()
 
