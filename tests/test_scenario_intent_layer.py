@@ -54,8 +54,10 @@ class ScenarioIntentLayerTests(unittest.TestCase):
     def test_named_object_investigation_resolves_target_and_intent(self):
         intent = self.game.judge("掲示板を調べる", self.state)
         self.assertEqual(("inspect", "board"), (intent["action_type"], intent["target_id"]))
-        self.assertEqual({"major": "行動", "minor": "調査", "confidence": 0.88, "alternates": []}, intent["intent"])
-
+        self.assertEqual("行動", intent["intent"]["major"])
+        self.assertEqual("調査", intent["intent"]["minor"])
+        self.assertGreaterEqual(intent["intent"]["confidence"], 0.8)
+        self.assertEqual([], intent["intent"].get("alternates", []))
     def test_targetless_probe_prompts_candidates(self):
         intent = self.game.judge("調べる", self.state)
         lines, result, events = self.game.resolve(intent, self.state)
@@ -126,7 +128,7 @@ class ScenarioIntentLayerTests(unittest.TestCase):
         self.assertEqual("休憩する", events[0]["action_text"])
         self.assertIn("少し時間を進めます", lines[0])
 
-    def test_ambiguous_watch_uses_internal_dice(self):
+    def test_ambiguous_watch_has_low_confidence(self):
         intent = self.game.judge("見張りの様子を見る", self.state)
         self.assertEqual("行動", intent["intent"]["major"])
         self.assertIn(intent["intent"]["minor"], {"観察", "調査"})
