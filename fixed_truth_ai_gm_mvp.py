@@ -21,7 +21,7 @@ import time
 import unicodedata
 import urllib.parse
 from pathlib import Path
-VERSION = "v2.28.1 [clues-tiered-intent]"
+VERSION = "v2.28.3 [scene-aware-target-resolution]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -199,29 +199,23 @@ class Game:
             "仲間はGMの補助説明員ではなく、人物関係と卓の空気を作る参加者である。"
             "シナリオ上の重要度と人物の興味は別。事件だけでなく、環境、物、身体感覚、仲間、些細なことも話題にできる。\n"
             "\n"
-             "【ニコ】\n"
-             "小さな要素から妙な連想をする。細部、形、音、匂い、小物、違和感などに目が向きやすいが、"
-             "観察そのものより「そこから何を思い付くか」を優先する。"
-             "霧から巨大イカ、ロープから海の怪物、匂いから昔話や伝説のように連想してよい。"
-             "細部、形、音、匂い、小物、違和感などから別の出来事、噂、昔話、旅の記憶、昔話や伝説を思い出すような連想をしてよい。"
-             "観察で終わらず、昔話、噂、妙な想像、全く別の話題へ飛んでもよい。"
-             "むしろ単なる観察報告だけより、連想先まで話す方を好む。"
-             "連想先は有益でも正確でもなくてよい。単なる観察報告で終えるより、"
-             "「だから○○を思い出した」「そういえば○○って聞いたことない？」のように連想まで進める。"
-             "仲間から「なんでそうなるんだ」と思われる発想も歓迎する。冗談役には固定しない。"
-             "観察対象そのものの説明や推測で終わるより、そこから別の出来事、人物、昔話、噂、旅の記憶を思い出す方を好む。"
-             "ニコは些細な物、匂い、音、景色、天候、小道具などを見ると発言しやすい。"
-             "重要な手掛かりだから反応するのではなく、自分の連想が刺激された時に反応する。\n"
+            "【ニコ】\n"
+            "小さな要素から、直接は関係なさそうなことへ連想が飛びやすい。"
+            "細部、形、音、匂い、小物、違和感などを見ると、別の出来事、人物、記憶、噂、想像を思い付く。"
+            "観察結果の説明や推理で終わるより、『それを見て何を思い出したか、何を想像したか』を話す方を好む。"
+            "連想先は有益でも正確でもなくてよく、仲間から『なんでそうなるんだ』と思われてもよい。"
+            "昔話や伝説だけに偏らず、日常の記憶、旅先の出来事、知人、食べ物、道具、失敗談などへ飛んでもよい。"
+            "同じ題材や似た連想を繰り返さない。重要な手掛かりではなく、自分の連想が刺激された時に発言する。\n"
              "\n"
-             "【ピピ】\n"
-             "理屈より人へ意識が向く。"
-             "状況そのものより、仲間やNPCがどうしているかに関心を持つ。"
-             "体調、疲れ、不安、無理をしていないか、困っていないかなどによく気付く。"
-             "自分が怖がるだけでなく、誰かを気遣ったり、人と人の関係や様子について話すことも多い。"
-             "仲間やNPCへの反応が中心だが、怖がり役や特定人物への依存役には固定しない。"
-             "人の仕草、表情、態度、沈黙、距離感、会話の様子などを見ると発言しやすい。"
-             "事件や手掛かりそのものより、『あの人どうしたんだろう』『大丈夫かな』と人へ関心が向きやすい。"
-             "重要な手掛かりだから反応するのではなく、自分が誰かを気に掛けた時に反応する。\n"
+            "【ピピ】\n"
+            "理屈より人へ意識が向く。"
+            "状況そのものより、仲間やNPCがどうしているかに関心を持つ。"
+            "体調、疲れ、不安、無理をしていないか、困っていないかなどによく気付く。"
+            "自分が怖がるだけでなく、誰かを気遣ったり、人と人の関係や様子について話すことも多い。"
+            "仲間やNPCへの反応が中心だが、怖がり役や特定人物への依存役には固定しない。"
+            "人の仕草、表情、態度、沈黙、距離感、会話の様子などを見ると発言しやすい。"
+            "事件や手掛かりそのものより、『あの人どうしたんだろう』『大丈夫かな』と人へ関心が向きやすい。"
+            "重要な手掛かりだから反応するのではなく、自分が誰かを気に掛けた時に反応する。\n"
             "【クロ】\n"
             "突拍子のない発想をする卓の盛り上げ役。事件、異常事態、怪談、騒ぎ、陰謀、秘密、噂話などを面白がる。"
             "普通の説明で終わるより、つい怪しい話や大げさな解釈へ話を広げたがる。"
@@ -229,23 +223,20 @@ class Game:
             "根拠の薄い説や大げさな想像を楽しみ、正解でなくてよく、見栄、ホラ話、勘違い、自信満々な推測をしてよい。"
             "知らないことを知っているように話しても、それはホラ話、冗談、勘違いであり、未発見情報や真相を事実として知っているわけではない。\n"
             "ただし『何もしない』『帰ろう』『諦めよう』など進行を止める誘導は禁止。"
-            "退屈な状況では黙るより、『何かありそう』という方向へ話を広げたがる。\n"
+            "退屈な状況では黙るより、『何かありそう』という方向へ話を広げたがる。"
+            "同じ種類の反応を繰り返さない。"
+            "怪しい、不吉だけでなく、陰謀説、珍説、勘違い、自信満々なホラ話など別方向の解釈をしてもよい。\n"
             "\n"
             "【ガラン】\n"
-            "まず動いてみることを好む。考え込むより試す、様子を見るより行ってみるという発想をしやすい。"
-            "崖なら登ろうとする。道が分かれるなら近い方へ行こうとする。"
-            "気になる相手がいるなら話しかけようとする。"
-            "必ずしも正しい判断でなくてよい。勢いでその場で試すこともある。"
-            "何かできそうなことを見つけると、つい自分でもやってみたくなる。"
-            "成功した行動には「やった」「できた」「次も見よう」のような前向きな反応をしやすい。"
-            "長い推理や難しい相談はあまり得意ではない。"
-            "考え込んで話が止まるくらいなら、とりあえず行ってみた方が早いと思いやすい。"
-            "危険そうな場所や障害を見ても、まず『できるかどうか』より『やってみるか』が先に来る。"
-            "誰かが慎重になりすぎていると、『見れば分かる』『行ってみよう』『試してみよう』と背中を押しやすい。"
-            "手掛かりを並べて推理するより、現場を見る、人に聞く、触ってみるなど実際の行動に興味を持つ。"
-            "『まず○○』『順番を決めよう』『候補を整理しよう』のような段取りの提案は控えめにする。"
-            "推理を断定したり主導したりはしない。判断はPLへ残す。"
-            "ただし行動案を口にすることは多く、『じゃあ行くか』『やってみるか』『登れそうだな』のような発言は歓迎する。\n"
+            "まず動いてみることを好む。"
+            "考え込むより試す、見るより行く、相談するよりやってみるという発想をしやすい。"
+            "気になる場所があれば行きたがり、気になる相手がいれば話しかけたがる。"
+            "推理や議論よりも実際の行動に興味を持つ。"
+            "正しいかどうかより『とりあえずやってみよう』を優先してもよい。"
+            "行動の成功は素直に喜ぶ。"
+            "気になるものを見つけると、その場で試せそうな行動を考えやすい。"
+            "『〇〇してみよう』のような提案をしてよい。"
+            "判断や結論はPLへ任せるが、行動案を口にすることは多い。\n"
             "\n"
             "【おふざけ入力】\n"
             "conversation_diagnostics.playfulInput=trueの時だけ、雑談モードを1ターン許可する。"
@@ -1226,6 +1217,67 @@ class Game:
             return str(target_id).split(":", 1)[-1]
         return str(target_id or "")
 
+    def explicit_npc_question(self, raw, st=None):
+        """Split an explicit NPC question into addressee and topic.
+
+        In "村長に灯台守のことを聞く", 村長 is the addressee and 灯台守 is
+        only the topic. This route intentionally precedes generic longest-match
+        target resolution and GoalIntent routing.
+        """
+        text = str(raw or "").strip()
+        normalized = self.normalize_action_example(text)
+        question_markers = (
+            "聞く", "聞きたい", "質問する", "質問したい",
+            "尋ねる", "尋ねたい", "問いかける", "教えてもらう",
+        )
+        if not any(marker in normalized for marker in question_markers):
+            return None
+
+        candidates = []
+        for npc_id, npc in self.npcs.items():
+            names = [str(npc.get("name", "") or "")]
+            names += [str(alias) for alias in (npc.get("aliases", []) or []) if str(alias)]
+            for name in dict.fromkeys(names):
+                if not name:
+                    continue
+                # The grammatical marker after the NPC name identifies the addressee.
+                match = re.search(rf"{re.escape(name)}\s*(?:に|へ|から)", text)
+                if match:
+                    candidates.append({
+                        "target_id": npc_id,
+                        "target_name": name,
+                        "start": match.start(),
+                        "end": match.end(),
+                    })
+
+        if not candidates:
+            return None
+
+        # Prefer the earliest grammatical addressee. At the same position, prefer
+        # the longer authored name so aliases cannot steal a full NPC name.
+        candidates.sort(key=lambda item: (item["start"], -len(item["target_name"])))
+        selected = candidates[0]
+        topic_text = text[selected["end"]:].strip(" 、,。！？!?\u3000")
+        topic_text = re.sub(r"^(?:は|、|,|\s)+", "", topic_text)
+        topic_text = re.sub(
+            r"(?:について|のことを|のこと|を)?"
+            r"(?:聞く|聞きたい|質問する|質問したい|尋ねる|尋ねたい|問いかける|教えてもらう)"
+            r"[。！？!?]?$",
+            "",
+            topic_text,
+        ).strip(" 、,。！？!?\u3000")
+
+        return {
+            "target_id": selected["target_id"],
+            "target_name": selected["target_name"],
+            "topic_text": topic_text,
+            "present": (
+                self.npc_present_here(selected["target_id"], st)
+                if st is not None
+                else None
+            ),
+        }
+
     def explicit_person_target_phrase(self, raw):
         """Extract a person phrase from an explicit question without asserting existence."""
         text = str(raw).strip()
@@ -1279,7 +1331,11 @@ class Game:
                 }
             target_id = npc_id
         else:
-            target_id = self.target(raw, "inspect", None)
+            # Pass the current state into target resolution. This allows otherwise
+            # identical names and aliases to prefer an object that is actually
+            # visible in the current scene. Without st, a hidden object such as
+            # marked_crate could steal "荷箱" from the visible cave_crates object.
+            target_id = self.target(raw, "inspect", st)
         if not target_id:
             return None
         kind = self.entity_kind(target_id)
@@ -1338,7 +1394,7 @@ class Game:
             return {"major": "会話", "minor": "推理", "confidence": 1.0, "alternates": [], "explicit": True, "route": "explicit-speech-act"}
         if "犯人" in text and any(x in text for x in ("誰", "思う", "考え")):
             return {"major": "会話", "minor": "推理", "confidence": 0.98, "alternates": [], "explicit": True, "route": "explicit-speech-act"}
-        if any(x in text for x in ("話を聞く", "話を聞き", "質問する", "質問し", "尋ねる", "尋ね", "問いかけ", "教えて")):
+        if any(x in text for x in ("話を聞く", "話を聞き", "ことを聞く", "について聞く", "質問する", "質問し", "尋ねる", "尋ね", "問いかけ", "教えて")):
             return {"major": "会話", "minor": "質問", "confidence": 1.0, "alternates": [], "explicit": True, "route": "explicit-speech-act"}
         return None
 
@@ -1618,7 +1674,41 @@ class Game:
             self.log_intent_gate(raw, True, "exact_action_check")
             return {"raw": raw, "action_type": "action_skill_check", "target_id": exact_action_check.get("id"), "intent_mode": "action-check-exact"}
 
-        # 3. Scenario NPC/location/object/goal target resolution.
+        # 3. Explicit NPC question. Resolve the grammatical addressee before
+        # generic longest-match targeting, so a topic NPC cannot steal the action.
+        npc_question = self.explicit_npc_question(raw, st)
+        if npc_question:
+            target_id = npc_question["target_id"]
+            target_name = npc_question["target_name"]
+            topic_text = npc_question["topic_text"]
+            intent = {
+                "major": "会話",
+                "minor": "質問",
+                "confidence": 1.0,
+                "alternates": [],
+                "explicit": True,
+                "route": "explicit-npc-question",
+            }
+            self.log_intent_gate(raw, True, "explicit_npc_question")
+            self.log_intent(target_name, intent, None)
+            if self.debug:
+                print("[AskRouting]")
+                print(f"target={target_id}")
+                print(f"topic_text={topic_text}")
+            return {
+                "raw": raw,
+                "action_type": "ask",
+                "target_id": target_id,
+                "target_present": npc_question.get("present"),
+                "target_text": target_name,
+                "topic_text": topic_text,
+                "intent_mode": "scenario-explicit-npc-question",
+                "intent": intent,
+                "conversation_major": "会話",
+                "conversation_minor": "質問",
+            }
+
+        # 4. Scenario NPC/location/object/goal target resolution.
         target_info = self.resolve_target(raw, st)
         explicit_target = (target_info or {}).get("target_id")
         if target_info and not target_info.get("resolved", True):
@@ -1635,7 +1725,9 @@ class Game:
                 "intent": intent,
             }
         if explicit_target is not None:
-            goal_hit = self.goal_intent_override(raw, explicit_target) if explicit_target in self.goal_targets() else None
+            goal_hit = None
+            if self.explicit_npc_question(raw, st) is None and explicit_target in self.goal_targets():
+                goal_hit = self.goal_intent_override(raw, explicit_target)
             if goal_hit:
                 action_type, mode = goal_hit
                 return {"raw": raw, "action_type": action_type, "target_id": explicit_target, "intent_mode": mode}
@@ -1653,12 +1745,12 @@ class Game:
                     "intent_mode": "scenario-intent", "intent": intent,
                     "conversation_major": intent.get("major"), "conversation_minor": intent.get("minor")}
 
-        # 4. Scenario formal route (embedding/exact author examples), before free fallback.
+        # 5. Scenario formal route (embedding/exact author examples), before free fallback.
         action_check = self.match_action_check(raw, st)
         if action_check:
             return {"raw": raw, "action_type": "action_skill_check", "target_id": action_check.get("id"), "intent_mode": "action-check"}
 
-        # 5-8. Intent Layer is now the only fallback for route misses, including companions.
+        # 6-9. Intent Layer is now the only fallback for route misses, including companions.
         intent = self.classify_intent(raw, None)
         dice_choice = self.decide_ambiguous_intent(intent)
 
@@ -2632,13 +2724,20 @@ class Game:
         npc_id = it.get("target_id")
         if not npc_id or npc_id not in self.npcs:
             return None
-        raw = it.get("raw", "")
-        global_hits = self.ask_topic_hits_all(raw)
+        raw = str(it.get("raw", "") or "")
+        topic_text = str(it.get("topic_text", "") or "").strip()
+        topic_query = topic_text or raw
+        if self.debug:
+            print("[AskRoutingResolve]")
+            print(f"target={npc_id}")
+            print(f"topic_text={topic_text}")
+            print(f"query={topic_query}")
+        global_hits = self.ask_topic_hits_all(topic_query)
         if not global_hits:
             return None
-        topic_ids = self.ask_topic_ids_for_npc(npc_id, raw)
+        topic_ids = self.ask_topic_ids_for_npc(npc_id, topic_query)
         if not topic_ids:
-            return self.ask_topic_no_knowledge_lines(npc_id, raw), {"status": "ok", "category": "no_reveal", "reason": "npc_topic_unknown"}, []
+            return self.ask_topic_no_knowledge_lines(npc_id, topic_query), {"status": "ok", "category": "no_reveal", "reason": "npc_topic_unknown"}, []
 
         notes = []
         ev = []
