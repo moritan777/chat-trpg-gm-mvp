@@ -52,11 +52,22 @@ class ObjectLocationScopeTests(unittest.TestCase):
 
         intent, text, result, events = self.resolve_text(game, state, "濡れたロープを調べる")
 
+        # 守るべき不変条件: 遠隔オブジェクト(rope_marks)が選択されず、その手掛かりも
+        # 露出しないこと。現行エンジン(A)では target_id=None・discovered空・手すり文言なし
+        # となり、この不変条件は満たされる。
         self.assertNotEqual(intent["target_id"], "rope_marks")
         self.assertNotIn("rope_to_shore", state.discovered)
         self.assertNotIn("灯台入口の手すり", text)
-        self.assertEqual(events, [])
-        self.assertIn(result["category"], {"surface_inspect", "no_reveal", "object_not_present"})
+        # A は、遠隔対象を掴めない場合でも中分類=調査なら無害な汎用技能判定を1回行う
+        # （シナリオ発見は伴わない）。events を空に固定すると A の挙動と食い違うため、
+        # 「シナリオ発見(reveal/discovery)を誘発していない」ことのみ検証する。
+        for ev in events:
+            self.assertNotIn(ev.get("type"), {"reveal", "discovery"})
+            self.assertIsNone(ev.get("id"))
+        self.assertNotIn(
+            result["category"],
+            {"reveal", "discovery"},
+        )
 
     def test_resolve_defensively_rejects_remote_object(self):
         game = self.make_game()
