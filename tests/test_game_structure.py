@@ -23,6 +23,8 @@ class GameStructureTests(unittest.TestCase):
             name: count for name, count in method_counts.items() if count > 1
         }
         self.assertEqual({}, duplicates)
+        for required in ("judge", "resolve", "packet", "render_table_turn", "companion_banter_prompt"):
+            self.assertIn(required, method_counts)
 
 
 if __name__ == "__main__":
