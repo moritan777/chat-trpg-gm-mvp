@@ -67,5 +67,21 @@ class ArrivalNpcDescriptionTests(unittest.TestCase):
         self.assertNotIn("少年ノア", "\n".join(notes))
 
 
+
+    def test_arrival_without_npc_does_not_add_npc_line(self):
+        self.game.locs["empty"] = {"id": "empty", "name": "空き地", "intro": "誰もいない空き地。", "npcs": []}
+        state = State("empty")
+        with patch.dict(os.environ, {"LLM_PROVIDER": "none", "TABLE_TURN_RENDER": "1"}):
+            notes, _ = self.game.render_table_turn(
+                ["GM: 誰もいない空き地。"],
+                {"raw": "空き地へ行く", "action_type": "move"},
+                {"status": "ok", "category": "move"},
+                [],
+                state,
+            )
+        rendered = "\n".join(notes)
+        self.assertIn("誰もいない空き地。", rendered)
+        self.assertNotIn("辺りには", rendered)
+
 if __name__ == "__main__":
     unittest.main()
