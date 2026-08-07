@@ -124,5 +124,15 @@ class ObjectLocationScopeTests(unittest.TestCase):
                 self.assertEqual(intent["target_id"], expected)
 
 
+
+    def test_duplicate_alias_never_stops_at_invisible_first_candidate(self):
+        game = self.make_game()
+        state = State("sea_cave")
+        intent = game.judge("荷箱を見る", state)
+        self.assertNotEqual("marked_crate", intent["target_id"])
+        self.assertEqual("cave_crates", intent["target_id"])
+        _notes, result, _events = game.resolve(intent, state)
+        self.assertNotEqual("object_not_present", result["category"])
+
 if __name__ == "__main__":
     unittest.main()
