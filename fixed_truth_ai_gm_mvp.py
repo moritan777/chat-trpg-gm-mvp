@@ -1754,16 +1754,35 @@ class Game:
         intent = self.classify_intent(raw, None)
         dice_choice = self.decide_ambiguous_intent(intent)
 
+        # Explicit companion addressing is stronger than fallback semantic
+        # classification. Formal commands have already been handled by
+        # explicit_command() at the beginning of judge().
+        if companion is not None:
+            companion_intent = intent
+            if intent.get("major") == "メタ" and not intent.get("explicit"):
+                companion_intent = {
+                    **intent,
+                    "major": "会話",
+                    "minor": "雑談",
+                    "route": "explicit-companion-override",
+                    "overridden_major": intent.get("major"),
+                    "overridden_minor": intent.get("minor"),
+                }
+            return self.conversation_action(
+                raw,
+                companion_intent,
+                dice_choice,
+                self.entity_public_name(companion),
+                target_id=companion,
+            )
+
         if intent.get("major") == "メタ":
             return {"raw": raw, "action_type": "command", "target_id": None,
                     "intent_mode": "intent-command", "command": intent.get("minor"), "intent": intent}
 
-        if companion is not None or intent.get("major") == "会話":
-            # Companion names select participants, but never bypass Intent Layer.
+        if intent.get("major") == "会話":
             return self.conversation_action(
-                raw, intent, dice_choice,
-                self.entity_public_name(companion) if companion else "対象なし",
-                target_id=companion,
+                raw, intent, dice_choice, "対象なし", target_id=None,
             )
 
         if self.is_targetless_probe(raw):

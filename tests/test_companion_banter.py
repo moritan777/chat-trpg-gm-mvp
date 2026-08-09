@@ -170,6 +170,82 @@ class CompanionBanterTests(unittest.TestCase):
                 # あることを検証する。
                 assert_companion_directed(self, intent, target)
 
+    def test_judge_explicit_nico_request_beats_embedding_meta_fallback(self):
+        game = self.make_game()
+
+        with patch.object(
+            game,
+            "classify_intent",
+            return_value={
+                "major": "メタ",
+                "minor": "help",
+                "confidence": 0.731,
+                "alternates": [],
+                "candidates": [{"major": "メタ", "minor": "help", "score": 0.731}],
+                "explicit": False,
+                "route": "embedding-hierarchy",
+            },
+        ):
+            intent = game.judge("ニコ変なこと言って")
+
+        self.assertNotEqual("command", intent["action_type"])
+        self.assertEqual("companion:ニコ", intent["target_id"])
+        self.assertEqual("会話", intent["intent"]["major"])
+        self.assertEqual("雑談", intent["intent"]["minor"])
+        self.assertEqual("explicit-companion-override", intent["intent"]["route"])
+        self.assertEqual("メタ", intent["intent"]["overridden_major"])
+        self.assertEqual("help", intent["intent"]["overridden_minor"])
+
+    def test_judge_explicit_companion_requests_keep_target(self):
+        game = self.make_game()
+        cases = (
+            ("ニコ変なこと言って", "companion:ニコ"),
+            ("クロも便乗して", "companion:クロ"),
+            ("ピピ反応して", "companion:ピピ"),
+            ("ガラン解決して", "companion:ガラン"),
+        )
+        fallback_meta = {
+            "major": "メタ",
+            "minor": "help",
+            "confidence": 0.73,
+            "alternates": [],
+            "explicit": False,
+            "route": "embedding-hierarchy",
+        }
+
+        for raw, expected_target in cases:
+            with self.subTest(raw=raw), patch.object(
+                game, "classify_intent", return_value=dict(fallback_meta)
+            ):
+                intent = game.judge(raw)
+
+            self.assertNotEqual("command", intent["action_type"])
+            self.assertEqual(expected_target, intent["target_id"])
+            self.assertEqual("会話", intent["intent"]["major"])
+
+    def test_formal_commands_still_beat_companion_fallback(self):
+        game = self.make_game()
+
+        for raw, expected_command in (
+            ("help", "help"),
+            ("status", "status"),
+            ("clues", "clues"),
+            ("quit", "quit"),
+        ):
+            with self.subTest(raw=raw):
+                intent = game.judge(raw)
+
+            self.assertEqual("command", intent["action_type"])
+            self.assertEqual(expected_command, intent["command"])
+            self.assertEqual("explicit-command", intent["intent_mode"])
+
+    def test_removed_character_name_is_not_companion_target(self):
+        game = self.make_game()
+
+        intent = game.judge("リュート反応して")
+
+        self.assertNotEqual("companion:リュート", intent.get("target_id"))
+
 
     def test_table_turn_drops_noncanonical_companion_speakers(self):
         game = self.make_game()
