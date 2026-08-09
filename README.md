@@ -1,6 +1,12 @@
 # Chat TTRPG GM MVP
 
-現行版: **v2.22.0 行動ルーティング保護** (`v2.22.0 [action-routing-guards]`)
+現行版: **v2.30.0 明示的な仲間ルーティング** (`v2.30.0 [explicit-companion-routing]`)
+
+バージョンの正本は `fixed_truth_ai_gm_mvp.py` の `VERSION` です。起動せずに
+`python fixed_truth_ai_gm_mvp.py --version` で確認できます。README の現行版表記と
+モジュール先頭の版表記も、リリース時にこの値へ揃えます。シナリオにはエンジンとは
+独立した作者版があり、サンプルでは本文見出し、`scenario_revision`、
+`meta.authoring_revision` を同時に更新します。
 
 ## Example Session
 <img width="1115" height="628" alt="image" src="https://github.com/user-attachments/assets/f6f2c73c-f0c9-4eac-a6ab-a342f82a51e5" />
@@ -85,15 +91,15 @@ LLM を利用したチャット型 TTRPG GM エンジンです。
 
 各発言の正規化した話題は`[COMPANION_TOPIC]`として表示し、セッション末尾では`CharacterTopic=<キャラクター> Topic=<話題> Count=<回数>`形式で集計します。これにより、仲間ごとの発言が特定テーマへ偏っていないかを確認できます。
 
-会話連鎖の耐久観測には`story_5companions_chain_test.txt`を利用できます。
-ニコが提示した話題から安全・段取り系テーマへの収束を観測する場合は、`story_topic_drift_test.txt`を同じ`--script`オプションへ指定します。
-ニコの巨大イカ・宝物・空飛ぶ魚からの話題派生を短く確認する場合は、`story_5companions_endurance_v1.txt`を利用できます。
-`ChainRate`、`TopicMaintenanceRate`、`TopicBranchRate`を30ターンで比較する場合は、`story_topic_branch_30turn_test.txt`を利用します。
+会話連鎖を観測するときは、1行1コマンドのUTF-8テキストを作成して`--script`へ指定します。
+リポジトリには旧来の手動観測用`story_*.txt`を同梱していません。再現可能な自動確認は
+`tests/test_companion_banter.py`を使用してください。シナリオ内の作者テスト用入力は、
+`md_to_scenario.py`が出力先へ生成する`sample_inputs_<テスト名>.txt`を利用できます。
 
 ```powershell
 python .\fixed_truth_ai_gm_mvp.py `
-  --scenario-dir scenario_lighthouse_from_md_v2150 `
-  --script story_5companions_chain_test.txt `
+  --scenario-dir .\scenario_lighthouse `
+  --script .\scenario_lighthouse\sample_inputs_topic_resolution.txt `
   --debug-llm
 ```
 
@@ -172,8 +178,8 @@ PowerShellで現在のセッションに設定し、通常どおり起動する�
 $env:TABLE_TURN_TEMPERATURE="0.9"
 
 python .\fixed_truth_ai_gm_mvp.py `
-  --scenario-dir scenario_lighthouse_from_md_v2150 `
-  --script story_banter_v2152.txt `
+  --scenario-dir .\scenario_lighthouse `
+  --script .\scenario_lighthouse\sample_inputs_topic_resolution.txt `
   --dice-total 3 `
   --debug-judge `
   --debug-llm
@@ -203,8 +209,8 @@ Remove-Item Env:TABLE_TURN_TEMPERATURE -ErrorAction SilentlyContinue
 ```powershell
 $env:TABLE_TURN_TEMPERATURE="0.7"
 python .\fixed_truth_ai_gm_mvp.py `
-  --scenario-dir scenario_lighthouse_from_md_v2150 `
-  --script story_banter_v2152.txt `
+  --scenario-dir .\scenario_lighthouse `
+  --script .\scenario_lighthouse\sample_inputs_topic_resolution.txt `
   --dice-total 3 `
   --debug-judge `
   --debug-llm
@@ -392,6 +398,23 @@ Lint
 ゲーム本体です。
 
 プレイヤーとの会話を受け取り、シナリオの状態管理と LLM 描写を統合してセッションを進行します。
+
+引数とオプション:
+
+| オプション | 説明 | 既定値 |
+| --- | --- | --- |
+| `--version` | エンジンのバージョンを表示して終了 | - |
+| `--scenario-dir DIR` | `scenario.json`を含むディレクトリ | `scenario_lighthouse` |
+| `--script PATH` | 1行1コマンドのUTF-8入力。省略時は対話プレイ | 対話入力 |
+| `--debug-judge` | 行動判定のデバッグ出力を有効化 | 無効 |
+| `--debug-llm` | LLM・仲間会話のデバッグ出力を有効化 | 無効 |
+| `--debug-embedding` | Embeddingのデバッグ出力を有効化 | 無効 |
+| `--debug-all` | 上記すべてのデバッグ出力を有効化 | 無効 |
+| `--dice-total N` | シナリオ判定の合計値を固定 | ランダム |
+| `--skill-dice-total N` | 汎用技能判定の出目を固定 | ランダム |
+| `--dice-seed N` | 乱数生成器のシードを固定 | システム乱数 |
+
+`--dice-total`と`--skill-dice-total`はテスト・再現確認用です。通常プレイでは省略してください。
 
 ---
 
