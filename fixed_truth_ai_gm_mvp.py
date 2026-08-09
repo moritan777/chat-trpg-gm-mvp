@@ -21,7 +21,7 @@ import time
 import unicodedata
 import urllib.parse
 from pathlib import Path
-VERSION = "v2.28.3 [scene-aware-target-resolution]"
+VERSION = "v2.30.0 [explicit-companion-routing]"
 STANDARD_SKILLS = {
     "investigation": 0,
     "survival": 0,
@@ -3742,16 +3742,17 @@ def load_script(path):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--scenario-dir", default="scenario_lighthouse")
-    ap.add_argument("--script")
-    ap.add_argument("--debug-judge", action="store_true")
-    ap.add_argument("--debug-llm", action="store_true")
-    ap.add_argument("--debug-embedding", action="store_true")
-    ap.add_argument("--debug-all", action="store_true")
-    ap.add_argument("--dice-total", type=int)
-    ap.add_argument("--skill-dice-total", type=int)
-    ap.add_argument("--dice-seed", type=int)
+    ap = argparse.ArgumentParser(description="Chat-style TTRPG GM engine")
+    ap.add_argument("--version", action="version", version=VERSION)
+    ap.add_argument("--scenario-dir", default="scenario_lighthouse", help="directory containing scenario.json (default: scenario_lighthouse)")
+    ap.add_argument("--script", help="UTF-8 command script; omit for interactive play")
+    ap.add_argument("--debug-judge", action="store_true", help="show action-judgement diagnostics")
+    ap.add_argument("--debug-llm", action="store_true", help="show LLM and companion diagnostics")
+    ap.add_argument("--debug-embedding", action="store_true", help="show embedding diagnostics")
+    ap.add_argument("--debug-all", action="store_true", help="enable every debug category")
+    ap.add_argument("--dice-total", type=int, help="override the total for scenario checks")
+    ap.add_argument("--skill-dice-total", type=int, help="override the die total for generic skill checks")
+    ap.add_argument("--dice-seed", type=int, help="seed the random-number generator")
     args = ap.parse_args()
     dbg_judge = args.debug_judge or args.debug_all
     dbg_llm = args.debug_llm or args.debug_all

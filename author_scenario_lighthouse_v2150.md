@@ -1217,7 +1217,7 @@
         "航路図を解析する"
       ],
       "expect": [
-        "ここからは、まだ読み取れません。"
+        "今の確認では、それ以上のことは分からない。"
       ]
     },
     "topic_resolution": {
@@ -1236,9 +1236,9 @@
       ]
     }
   },
-  "scenario_revision": "v2160_free_action_friendly_scenario",
+  "scenario_revision": "v2161_assistant_key_foreshadowing",
   "meta": {
-    "authoring_revision": "v2.16.0",
+    "authoring_revision": "v2.16.1",
     "engine_requirements": {
       "npc_presence_guard": "v2.12.1a",
       "surface_public_separation": "v2.12.2b",
@@ -1246,7 +1246,8 @@
       "ask_topic_resolver": "v2.14.1",
       "goal_intent_examples": "v2.15.0",
       "keeper_visibility_consistency": "v2.15.1",
-      "free_action_friendly_scenario": "v2.16.0"
+      "free_action_friendly_scenario": "v2.16.0",
+      "assistant_key_foreshadowing": "v2.16.1"
     },
     "notes": [
       "NPCの所在地、知識、話題をGMノートとして明示する。",
