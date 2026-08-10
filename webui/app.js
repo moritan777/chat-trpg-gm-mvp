@@ -173,7 +173,8 @@ async function testConnection(service) {
   try {
     const data = await api(`/api/connections/${service}/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ settings: formSettings() }) });
     setConnectionState(service, data.ok ? "success" : "failure");
-    result.textContent = data.ok ? `接続成功 (${data.latency_ms} ms${data.dimensions ? ` / ${data.dimensions}次元` : ""})` : data.status;
+    const responseModel = data.response_model ? ` / 応答モデル: ${data.response_model}` : "";
+    result.textContent = data.ok ? `接続成功 (${data.latency_ms} ms${responseModel}${data.dimensions ? ` / ${data.dimensions}次元` : ""})` : data.status;
     if (!data.ok) { settingsDetails.open = true; byId(`${service}-settings`).scrollIntoView({ behavior: "smooth", block: "nearest" }); }
   } catch (error) { setConnectionState(service, "failure"); result.textContent = error.message; settingsDetails.open = true; }
   finally { button.disabled = Boolean(sessionId); updateSummary(); }
