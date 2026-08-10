@@ -498,3 +498,70 @@ Goal には `intent_examples` を書きます。
 □ 誤解釈系がある
 □ run_authoring_pipeline.py が通る
 ```
+
+---
+
+## 13. 自然言語導線・知識境界の機械的設計規則
+
+### NPC topics
+
+- `topics` は「何について聞いたか」を、そのNPCが公開可能な discoverable へ解決する対応表です。
+- topicが参照するIDは `knows` に含め、`does_not_know` には絶対に含めません。
+- NPC由来discoverableの `source.id` と、そのtopicを所有するNPCを一致させます。
+- 導入・場所説明で公開した人物名と、人物の `name` / `aliases` を質問語彙として監査します。役職名と固有名が同一人物なら、代表的な自然質問が同じ意図へ到達するようにします。
+- 人物名だけで複数の重要情報を無条件公開しません。取得条件は discoverable の `requires_all` / `requires_any` に残し、topicで迂回させません。
+- `昨夜`、`事件`、`話`、`何か`のような広い語は複数情報への誤発火を招くため避けます。
+
+### positive_examples
+
+`positive_examples` はテスト専用コマンドではなく、自然な入力の代表例です。lexical fallback は形態素解析や同義語展開を行わず、`example in player_input` の文字列部分一致だけで判定します。したがって、Embeddingがなければ成立しない主要導線を作らないでください。
+
+良い例:
+
+```json
+"positive_examples": [
+  "灯台守のこと",
+  "ユアンについて",
+  "灯台守ユアンについて",
+  "灯台が消えた時のこと"
+]
+```
+
+悪い例:
+
+```json
+"positive_examples": ["話", "昨夜", "事件"]
+```
+
+導入で公開した主要語、関連する `name` / `aliases`、代表的な助詞違いを検討します。一方、短すぎる一般語は避け、同じ語が無関係な複数discoverableへ競合しないか確認します。似ているが別情報を指す語には `negative_examples` を検討します。
+
+### NPC presence
+
+NPCへ質問できるのは、NPCが現在地に存在する場合だけです。authored topicが一致してもpresence guardは迂回しません。不在なら `npc_absent` です。`hidden` / `missing` / `unavailable` のNPCは公開条件を満たすまで会話対象にせず、`location_hint` は不在案内にだけ使い、存在判定を上書きしません。
+
+### 最低限必要なシナリオテスト
+
+- 各 `solution_paths` の正規成功ルートを1件以上。
+- 同一人物の固有名と役職名による質問。
+- `does_not_know` の情報を別NPCから取得できない知識境界。
+- 不在NPCへの質問が `npc_absent` になること。
+- `requires_all` / `requires_any` の前提不足で公開されないこと。
+- 既発見情報の再質問で二重発見・二重modifier付与されないこと。
+- `EMBEDDING_PROVIDER=none` でも、導入で明示した主要固有名・役職・物体名による主要ルートが成立すること。
+
+接続テストは通常1入力ですが、ゲーム中の類似度判定はqueryと複数exampleを一括送信します。接続テスト成功だけでゲーム中の複数入力Embedding成功は保証されません。
+
+## シナリオ生成後の自己監査
+
+- [ ] 導入で公開した固有名詞を一覧化した
+- [ ] 各固有名詞がname、aliases、topics、positive_examplesのどこで使われるか確認した
+- [ ] 各NPCのtopicsがknowsの範囲内にある
+- [ ] does_not_knowとtopicsが矛盾していない
+- [ ] 各必須discoverableに自然な取得入力がある
+- [ ] 各solution pathを自然な入力だけで完走できる
+- [ ] NPC不在時にtopic resolverが発火しない
+- [ ] Embeddingなしでも正規入力で主要ルートを完走できる
+- [ ] 抽象的すぎるtopicやpositive exampleを登録していない
+- [ ] 正本Markdownから派生JSONとテストを再生成した
+- [ ] 派生JSONを直接編集していない
+- [ ] 正本とWeb版JSONの同期テストが成功した

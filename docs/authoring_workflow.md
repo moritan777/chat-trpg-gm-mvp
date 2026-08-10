@@ -7,8 +7,8 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `author_scenario_xxx.md` | 場所、NPC、手掛かり、ゴール、テストを記述する作者向けシナリオ |
-| `md_to_scenario.py` | Markdownから`scenario.json`、期待結果、サンプル入力を生成 |
+| `author_scenario_xxx.md` | fenced `scenario-json`ブロックを正本として、場所、NPC、手掛かり、ゴール、テストを記述 |
+| `md_to_scenario.py` | 正本Markdownから派生物の`scenario.json`、`test_expectations.json`、`sample_inputs_*.txt`を生成 |
 | `scenario_lint.py` | location、NPC、discoverableなどの参照整合性を検査 |
 | `run_authoring_pipeline.py` | 変換、Lint、自動テスト、期待結果確認を一括実行 |
 | `fixed_truth_ai_gm_mvp.py` | ゲーム本体。最後の手動プレイにも使用 |
@@ -17,14 +17,14 @@
 
 ### 1. シナリオを編集する
 
-`author_scenario_xxx.md`を編集します。
+`author_scenario_xxx.md`内の fenced `scenario-json`ブロックだけをランタイム定義の正本として編集します。`scenario.json`、`sample_inputs_*.txt`、`test_expectations.json`は派生生成物なので、派生物だけを直接修正しません。
 
 ### 2. 変換する
 
 ```powershell
 python .\md_to_scenario.py `
   .\author_scenario_lighthouse_v2150.md `
-  .\scenario_lighthouse\scenario.json
+  .\web\public\scenarios\lighthouse\scenario.json
 ```
 
 ### 3. Lintする

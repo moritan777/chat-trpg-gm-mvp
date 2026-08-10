@@ -165,16 +165,22 @@ def main():
         if topics and not isinstance(topics, dict):
             errors.append(f'npc {nid} topics must be object/dict')
         if isinstance(topics, dict):
+            known = set(as_list(npc.get('knows')) + as_list(npc.get('knowledge')) + as_list(npc.get('known_clues')))
+            unknown = set(as_list(npc.get('does_not_know')) + as_list(npc.get('unknown_clues')))
             for topic, refs in topics.items():
                 if not str(topic).strip():
                     warnings.append(f'npc {nid} has empty topic label')
                 for ref in as_list(refs):
                     if ref not in dids:
                         errors.append(f'npc {nid} topic {topic} unknown discoverable: {ref}')
-                    # soft consistency check
-                    known = set(as_list(npc.get('knows')) + as_list(npc.get('knowledge')) + as_list(npc.get('known_clues')))
+                    if ref in unknown:
+                        errors.append(f'npc {nid} topic {topic} maps {ref}, but it is listed in does_not_know/unknown_clues')
                     if known and ref not in known:
                         warnings.append(f'npc {nid} topic {topic} maps {ref}, but it is not listed in knows/knowledge')
+                    discoverable = next((item for item in sc.get('discoverables', []) if item.get('id') == ref), {})
+                    source = discoverable.get('source', {})
+                    if source.get('type') == 'npc' and source.get('id') != nid:
+                        errors.append(f'npc {nid} topic {topic} maps {ref}, but its source npc is {source.get("id")}')
 
     print(f'Lint result: {len(errors)} errors, {len(warnings)} warnings')
     for e in errors:

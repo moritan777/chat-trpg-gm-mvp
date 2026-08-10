@@ -252,3 +252,22 @@ LLMにシナリオを作らせる時は、以下を明示してください。
 7. 手動プレイする
 8. ログをLLMに渡して改善する
 ```
+
+---
+
+## 11. 自然言語導線の生成・自己監査プロンプト
+
+```text
+シナリオ生成後、次を機械的に監査してください。
+
+1. 導入と場所説明に出る固有名詞を列挙する。
+2. 人物のname/aliases（役職名と固有名を含む）を、関連NPCのtopicsとdiscoverableのpositive_examplesに照合する。
+3. topicsの全参照が所有NPCのknows内にあり、does_not_knowになく、NPC discoverableのsource.idとも一致することを確認する。
+4. requires_all/requires_anyをtopicだけで迂回できないことを確認する。
+5. 「昨夜」「事件」「話」「何か」のような抽象語だけをtopicやpositive_examplesにしない。
+6. NPC不在、知識境界、前提不足、既発見再質問、Embedding無効のテストを作る。
+7. 各solution pathを自然な入力で完走するテストを作る。
+8. author_scenario_*.mdのscenario-jsonだけを正本として直し、派生JSONは生成する。
+
+問題一覧、情報漏えいの可能性、追加する最小語彙、必要なテストを出力してください。自動的に条件を緩和しないでください。
+```
