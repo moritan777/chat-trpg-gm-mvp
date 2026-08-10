@@ -1,0 +1,5 @@
+{
+  "scenarios": [
+    { "id": "lighthouse", "title": "消えた灯台守", "path": "scenarios/lighthouse/scenario.json" }
+  ]
+}
