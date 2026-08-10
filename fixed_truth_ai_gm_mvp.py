@@ -10,7 +10,9 @@ Current features:
 - Goal routing: requires_all / requires_any retained
 """
 import argparse
+import contextlib
 import http.client
+import io
 import json
 import math
 import os
@@ -3741,6 +3743,60 @@ def load_script(path):
     return [x.strip() for x in Path(path).read_text(encoding="utf-8").splitlines() if x.strip() and not x.startswith("#")]
 
 
+class GameSession:
+    """Shared, presentation-neutral boundary around the canonical Game engine."""
+
+    def __init__(self, scenario_dir, **game_options):
+        self.game = Game(scenario_dir, **game_options)
+        self.state = State(self.game.sc["opening_scene"])
+        self.closed = False
+
+    def start(self):
+        return {
+            "opening": list(self.game.sc.get("opening", [])),
+            **self.get_public_state(),
+        }
+
+    def process_command(self, text):
+        if self.closed or self.state.ended:
+            raise RuntimeError("session is finished")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("command text must not be empty")
+        debug_output = io.StringIO()
+        with contextlib.redirect_stdout(debug_output):
+            intent = self.game.judge(text.strip(), self.state)
+            notes, result, events = self.game.resolve(intent, self.state)
+            self.game.last_result = result
+            notes, banter = self.game.render_table_turn(
+                notes, intent, result, events, self.state
+            )
+        lines = normalize_output_notes(notes)
+        if banter:
+            lines.extend(x for x in banter.splitlines() if x.strip())
+        return {
+            "lines": lines,
+            "success": result.get("status") != "fail",
+            "debug": debug_output.getvalue().splitlines(),
+            **self.get_public_state(),
+        }
+
+    def get_public_state(self):
+        location = self.game.locs.get(self.state.location, {})
+        return {
+            "current_location": {
+                "id": self.state.location,
+                "name": location.get("name", self.state.location),
+            },
+            "finished": self.is_finished(),
+        }
+
+    def is_finished(self):
+        return self.closed or self.state.ended
+
+    def close(self):
+        self.closed = True
+
+
 def main():
     ap = argparse.ArgumentParser(description="Chat-style TTRPG GM engine")
     ap.add_argument("--version", action="version", version=VERSION)
@@ -3757,8 +3813,17 @@ def main():
     dbg_judge = args.debug_judge or args.debug_all
     dbg_llm = args.debug_llm or args.debug_all
     dbg_emb = args.debug_embedding or args.debug_all
-    game = Game(args.scenario_dir, dbg_judge, dbg_llm, dbg_emb, args.dice_total, args.skill_dice_total, args.dice_seed)
-    st = State(game.sc["opening_scene"])
+    session = GameSession(
+        args.scenario_dir,
+        debug_judge=dbg_judge,
+        debug_llm=dbg_llm,
+        debug_embedding=dbg_emb,
+        dice_total=args.dice_total,
+        skill_dice_total=args.skill_dice_total,
+        dice_seed=args.dice_seed,
+    )
+    game = session.game
+    st = session.state
     print("チャット型TTRPG GM MVP " + VERSION)
 
     print("stdout encoding =", sys.stdout.encoding)
@@ -3781,12 +3846,10 @@ def main():
             print(f"\nPL> {raw}")
         else:
             raw = input("\nPL> ").strip()
-        it = game.judge(raw, st)
-        notes, res, ev = game.resolve(it, st)
-        game.last_result = res
-        notes, b = game.render_table_turn(notes, it, res, ev, st)
-        notes = normalize_output_notes(notes)
-        print("\n" + "\n".join(notes) + (("\n" + b) if b else ""))
+        turn = session.process_command(raw)
+        if turn["debug"]:
+            print("\n".join(turn["debug"]))
+        print("\n" + "\n".join(turn["lines"]))
     if st.ended:
         print("\nセッション終了。")
     game.print_conversation_stats()
