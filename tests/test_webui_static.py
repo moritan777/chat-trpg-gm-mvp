@@ -14,6 +14,26 @@ class WebUiStaticTests(unittest.TestCase):
         self.assertIn('id="chat-key" type="password"', self.html)
         self.assertIn('id="embedding-key" type="password"', self.html)
 
+    def test_summary_collapse_and_connection_states_exist(self):
+        for field in (
+            "settings-summary", "settings-details", "summary-scenario",
+            "summary-chat-state", "summary-embedding-state", "summary-save-state",
+        ):
+            self.assertIn(f'id="{field}"', self.html)
+        self.assertIn("接続設定を開く", self.html)
+        self.assertIn("接続設定を閉じる", self.html)
+        for state in ("未確認", "接続成功", "接続失敗"):
+            self.assertIn(state, self.script)
+
+    def test_api_key_controls_and_game_focus_behavior_exist(self):
+        self.assertIn('id="chat-key-use" type="checkbox"', self.html)
+        self.assertIn('id="embedding-key-use" type="checkbox"', self.html)
+        self.assertIn('settingsDetails.open = false', self.script)
+        self.assertIn('commandInput.focus()', self.script)
+        self.assertIn('setSettingsDisabled(true)', self.script)
+        self.assertIn('resetConnectionState(service)', self.script)
+        self.assertIn('byId(`${service}-${suffix}`).addEventListener("input"', self.script)
+
     def test_browser_does_not_persist_log_or_render_secrets_as_html(self):
         for forbidden in ("localStorage", "sessionStorage", "innerHTML", "console."):
             self.assertNotIn(forbidden, self.script)
