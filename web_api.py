@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import uvicorn
@@ -192,4 +193,11 @@ app.mount("/static", StaticFiles(directory=WEBUI), name="static")
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    parser = argparse.ArgumentParser(description="Chat TTRPG GM Web API")
+    parser.add_argument("--debug-all", action="store_true", help="show all engine and HTTP diagnostics")
+    args = parser.parse_args()
+    if args.debug_all:
+        manager.debug_all = True
+        connection_tester.debug_all = True
+        print("[WEB_DEBUG_ALL] enabled", flush=True)
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="debug" if args.debug_all else "info")

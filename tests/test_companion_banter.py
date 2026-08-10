@@ -494,7 +494,7 @@ class CompanionBanterTests(unittest.TestCase):
         self.assertIn("掛け合いは必須ではない", prompt)
         self.assertIn("仲間発言は0〜5行", prompt)
         self.assertIn("通常は1〜3人だけ反応する", prompt)
-        self.assertIn("仲間発言0行も許可", prompt)
+        self.assertIn("requested_companions が存在する場合、その仲間は必ず1回発言する", prompt)
         self.assertIn("全員や5行を埋めない", prompt)
         self.assertIn("発言は1度だけ", prompt)
         self.assertIn("複数回の発言は禁止", prompt)
@@ -1132,6 +1132,53 @@ class CompanionBanterTests(unittest.TestCase):
         )
         self.assertEqual(game.last_table_turn["official_gm_lines"], ["GM: " + public_text])
         self.assertEqual(game.last_table_turn["official_gm_lines_inserted"], [])
+
+    def test_table_turn_extracts_gemini_structured_content_and_keeps_target_npc(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.post_json = lambda url, body, timeout, tag: {
+            "choices": [{"message": {"content": [
+                {"type": "text", "text": "GM: 村長へ問いかけた。\n"},
+                {"type": "text", "text": "村長：昨夜は港にいた。\nニコ：もう少し聞いてみよう。"},
+            ]}}]
+        }
+
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
+            rendered, _ = game.render_table_turn(
+                ["GM: 村長へ問いかけた。"],
+                {"raw": "村長に聞く", "action_type": "ask", "target_id": "village_head"},
+                {"status": "ok", "category": "no_reveal"}, [], state,
+            )
+
+        self.assertEqual(rendered, [
+            "GM: 村長へ問いかけた。",
+            "村長：昨夜は港にいた。",
+            "ニコ：もう少し聞いてみよう。",
+        ])
+        structured = game.last_table_turn["structured_response"]
+        self.assertEqual(["村長：昨夜は港にいた。"], structured["npc_lines"])
+        self.assertEqual(["ニコ：もう少し聞いてみよう。"], structured["companion_lines"])
+
+    def test_table_turn_drops_non_target_npc_and_records_classification(self):
+        game = self.make_game()
+        state = State("harbor")
+        game.post_json = lambda url, body, timeout, tag: {
+            "choices": [{"message": {"content": "GM: 村長へ問いかけた。\n漁師バロ：俺も答える。\n村長：話そう。"}}]
+        }
+
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}):
+            rendered, _ = game.render_table_turn(
+                ["GM: 村長へ問いかけた。"],
+                {"raw": "村長に聞く", "action_type": "ask", "target_id": "village_head"},
+                {"status": "ok", "category": "no_reveal"}, [], state,
+            )
+
+        self.assertNotIn("漁師バロ：俺も答える。", rendered)
+        self.assertIn("村長：話そう。", rendered)
+        self.assertEqual(
+            ["漁師バロ：俺も答える。"],
+            game.last_table_turn["structured_response"]["dropped_speaker_lines"],
+        )
 
     def test_missing_official_discovery_is_still_inserted_after_rewrite(self):
         game = self.make_game()

@@ -17,6 +17,12 @@ def effective(chat_key="", embedding_key=""):
 class ConnectionTests(unittest.TestCase):
     def setUp(self): self.tester = ConnectionTester()
 
+    def test_debug_all_enables_every_engine_debug_category(self):
+        game = ConnectionTester(debug_all=True)._game(effective())
+        self.assertTrue(game.debug)
+        self.assertTrue(game.debug_llm)
+        self.assertTrue(game.debug_embedding)
+
     @patch("fixed_truth_ai_gm_mvp.Game.post_json")
     def test_chat_success(self, post):
         post.return_value = {"choices": [{"message": {"content": "OK"}}]}

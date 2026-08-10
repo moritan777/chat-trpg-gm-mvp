@@ -55,6 +55,10 @@ class WebUiStaticTests(unittest.TestCase):
         self.assertIn("const follow = isHistoryNearBottom()", self.script)
         self.assertIn("overflow-y: auto", self.style)
 
+    def test_rendered_lines_preserve_gm_npc_and_companion_speakers(self):
+        self.assertIn("function renderedLine(line)", self.script)
+        self.assertIn("data.lines.map(renderedLine)", self.script)
+
     def test_three_chat_providers_are_present(self):
         for provider in ("llama_cpp", "openai_compatible", "none"):
             self.assertIn(f'value="{provider}"', self.html)
@@ -63,6 +67,11 @@ class WebUiStaticTests(unittest.TestCase):
         self.assertIn("data.chat_providers", self.script)
         self.assertIn("更新後はWebサーバーを再起動してください", self.script)
         self.assertIn("Chat Providerはllama_cppまたはnone", self.script)
+
+    def test_windows_launcher_offers_debug_all(self):
+        launcher = Path("start_web.bat").read_text(encoding="utf-8")
+        self.assertIn("--debug-all", launcher)
+        self.assertIn("python -u web_api.py", launcher)
 
 
 if __name__ == "__main__": unittest.main()

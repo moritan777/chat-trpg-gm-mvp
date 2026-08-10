@@ -20,9 +20,12 @@ class ResponseFormatError(ValueError):
 class ConnectionTester:
     """Connection-only adapter reusing the engine's OpenAI-compatible HTTP path."""
 
+    def __init__(self, debug_all=False):
+        self.debug_all = debug_all
+
     def _game(self, effective):
         game = Game.__new__(Game)
-        game.debug = game.debug_llm = game.debug_embedding = False
+        game.debug = game.debug_llm = game.debug_embedding = self.debug_all
         game.runtime_settings = {
             "chat_base_url": effective["chat"]["base_url"], "chat_model": effective["chat"]["model"],
             "chat_api_key": effective["chat"].get("api_key", ""),

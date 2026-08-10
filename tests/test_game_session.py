@@ -1,6 +1,8 @@
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from fixed_truth_ai_gm_mvp import GameSession
@@ -53,6 +55,14 @@ class GameSessionTests(unittest.TestCase):
         turn = session.process_command("酒場へ行く")
         self.assertTrue(turn["debug"])
         self.assertFalse(any(line.startswith("[") for line in turn["lines"]))
+
+    def test_echo_debug_prints_captured_diagnostics(self):
+        session = GameSession(self.temp_dir.name, debug_judge=True, echo_debug=True)
+        output = StringIO()
+        with redirect_stdout(output):
+            turn = session.process_command("酒場へ行く")
+        self.assertTrue(turn["debug"])
+        self.assertIn(turn["debug"][0], output.getvalue())
 
 
 if __name__ == "__main__":
