@@ -48,11 +48,12 @@ class ScenarioCatalog:
 
 
 class SessionManager:
-    def __init__(self, catalog=None, settings_service=None):
+    def __init__(self, catalog=None, settings_service=None, debug_all=False):
         self.catalog = catalog or ScenarioCatalog()
         self._sessions = {}
         self._lock = threading.RLock()
         self.settings_service = settings_service
+        self.debug_all = debug_all
 
     def create(self, scenario_id):
         scenario_dir = self.catalog.scenario_dir(scenario_id)
@@ -70,6 +71,8 @@ class SessionManager:
                 "table_turn_temperature": effective["advanced"]["table_turn_temperature"],
                 "discovery_display": effective["advanced"]["discovery_display"],
             }
+        if self.debug_all:
+            options.update(debug_judge=True, debug_llm=True, debug_embedding=True, echo_debug=True)
         session = GameSession(scenario_dir, **options)
         session_id = str(uuid.uuid4())
         with self._lock:
