@@ -34,7 +34,9 @@
 
         <div class="service-grid">
           <fieldset id="chat-settings"><legend>Chat LLM</legend>
-            <label>Provider <select id="chat-provider"><option value="llama_cpp">llama_cpp</option><option value="none">none（LLM無効）</option></select></label><small id="chat-provider-source"></small>
+            <label>Provider <select id="chat-provider"><option value="llama_cpp">ローカル llama.cpp</option><option value="openai_compatible">外部 OpenAI互換API</option><option value="none">LLMを使用しない</option></select></label><small id="chat-provider-source"></small>
+            <p id="chat-provider-help" class="key-help"></p>
+            <div id="external-chat-notice" class="guide" hidden>外部APIの料金は利用者の契約に基づき発生する場合があります。APIキーはJSONへ保存されず、Python終了時に失われ、指定したBase URLへのChatリクエストだけに使われます。接続成功はAPI形式と認証の確認であり、会話品質・情報境界・指示追従はモデルに依存し、動作確認済みとは限りません。</div>
             <label>Base URL <input id="chat-url" type="url" required></label><small id="chat-url-source"></small>
             <label>Model <input id="chat-model" required></label><small id="chat-model-source"></small>
             <label class="key-toggle"><input id="chat-key-use" type="checkbox"> APIキーを使用する</label>
@@ -59,8 +61,9 @@
 
     <section id="game-panel" class="card game-panel">
       <div class="game-heading"><h2 id="location">未開始</h2><div><button id="start" class="primary">ゲーム開始</button><button id="new-game" class="destructive-button">新しいゲーム</button></div></div>
-      <div id="history" aria-live="polite"></div>
-      <form id="command-form"><label>プレイヤー入力 <textarea id="command" rows="3" required></textarea></label><button type="submit" class="primary">送信</button></form>
+      <div id="history" aria-live="polite" tabindex="0"></div>
+      <button id="new-message" hidden>新しいメッセージがあります — 最新位置へ移動</button>
+      <form id="command-form"><label>プレイヤー入力 <textarea id="command" rows="3" required></textarea></label><button id="command-submit" type="submit" class="primary">送信</button></form>
       <p id="error" role="alert"></p>
     </section>
   </main>
