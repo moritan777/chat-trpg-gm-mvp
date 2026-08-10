@@ -1,9 +1,8 @@
-import json
 import logging
 import re
 import time
 
-from fixed_truth_ai_gm_mvp import Game, normalize_api_base_url
+from fixed_truth_ai_gm_mvp import Game
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -27,18 +26,12 @@ class ConnectionTester:
         game = Game.__new__(Game)
         game.debug = game.debug_llm = game.debug_embedding = self.debug_all
         game.runtime_settings = {
+            "chat_provider": effective["chat"]["provider"],
             "chat_base_url": effective["chat"]["base_url"], "chat_model": effective["chat"]["model"],
             "chat_api_key": effective["chat"].get("api_key", ""),
             "embedding_base_url": effective["embedding"]["base_url"], "embedding_model": effective["embedding"]["model"],
             "embedding_api_key": effective["embedding"].get("api_key", ""),
         }
-        # Connection tests must exercise the values currently entered in the
-        # form.  The engine normally lets environment variables take priority,
-        # which would otherwise silently test a different endpoint.
-        chat_base = normalize_api_base_url(effective["chat"]["base_url"])
-        embedding_base = normalize_api_base_url(effective["embedding"]["base_url"])
-        game.llm_base_url = lambda: chat_base
-        game.emb_base_url = lambda: embedding_base
         return game
 
     def chat(self, effective, timeout=10):
@@ -55,12 +48,12 @@ class ConnectionTester:
             logger.info("Chat connection test URL: %s", url)
             try:
                 data = game.post_json(url, body, timeout, "BANTER")
-                logger.info("Chat connection test response JSON:\n%s", json.dumps(data, ensure_ascii=False, indent=2))
+                logger.info("Chat connection test response: %s", self._safe_chat_summary(data))
                 self._chat_content(data, url)
                 break
             except Exception as exc:
                 if isinstance(exc, ResponseFormatError):
-                    logger.error("Invalid chat response from %s (%s):\n%s", url, exc.detail, json.dumps(data, ensure_ascii=False, indent=2))
+                    logger.error("Invalid chat response from %s (%s): %s", url, exc.detail, self._safe_chat_summary(data))
                     # The endpoint responded successfully, so trying a guessed
                     # /v1 fallback would only hide the useful format failure.
                     return self._failure("chat", effective["chat"], exc)
@@ -70,6 +63,18 @@ class ConnectionTester:
         result = {"ok": True, "service": "chat", "provider": effective["chat"]["provider"], "base_url": game.llm_base_url(), "url": url, "model": effective["chat"]["model"], "latency_ms": round((time.perf_counter()-started)*1000), "status": "接続成功"}
         result["response_model"] = data.get("model") if isinstance(data.get("model"), str) else effective["chat"]["model"]
         return result
+
+    @staticmethod
+    def _safe_chat_summary(data):
+        """Describe response shape without logging provider payload content."""
+        if not isinstance(data, dict):
+            return "type=" + type(data).__name__
+        choices = data.get("choices")
+        return "keys=%s choices=%s error_present=%s" % (
+            sorted(str(key) for key in data),
+            len(choices) if isinstance(choices, list) else "invalid",
+            str("error" in data).lower(),
+        )
 
     @staticmethod
     def _chat_content(data, url):

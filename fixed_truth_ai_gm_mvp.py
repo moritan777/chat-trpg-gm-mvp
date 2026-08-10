@@ -46,6 +46,14 @@ def normalize_api_base_url(value):
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
+def chat_completions_url(value):
+    """Build the one canonical OpenAI-compatible chat endpoint."""
+    base = normalize_api_base_url(value)
+    if base.endswith("/chat/completions"):
+        return base
+    return base + "/chat/completions"
+
+
 class State:
     def __init__(self, loc):
         self.location = loc
@@ -145,6 +153,19 @@ class Game:
         secret = self.runtime_settings.get("embedding_api_key" if tag == "EMB" else "chat_api_key", "")
         if secret:
             headers["Authorization"] = "Bearer " + secret
+        if self.debug_for_tag(tag):
+            provider = self.chat_provider() if tag != "EMB" else "embedding"
+            proxy_enabled = False  # http.client is intentionally a direct transport.
+            print(f"[{tag}_CONFIG]")
+            print("provider=" + provider)
+            print("base_url=" + (self.llm_base_url() if tag != "EMB" else self.emb_base_url()))
+            print("model=" + (self.llm_model() if tag != "EMB" else self.emb_model()))
+            print("api_key_configured=" + str(bool(secret)).lower())
+            print("auth_header=" + ("Authorization" if secret else "none"))
+            print("proxy_enabled=" + str(proxy_enabled).lower())
+            print(f"[{tag}_REQUEST] method=POST content_type=application/json auth_header=" + ("Authorization" if secret else "none"))
+            # Log structure, never prompts, player text, or credentials.
+            print(f"[{tag}_BODY] model={body.get('model', '')!r} messages={len(body.get('messages', [])) if isinstance(body.get('messages'), list) else 0} max_tokens={body.get('max_tokens', '')!r}")
         try:
             conn.request(
                 "POST",
@@ -188,19 +209,21 @@ class Game:
     # ---------- LLM ----------
     def llm_base_url(self):
         return normalize_api_base_url(
-            os.getenv("LLAMA_CPP_BASE_URL")
+            self.runtime_settings.get("chat_base_url")
+            or os.getenv("LLAMA_CPP_BASE_URL")
             or os.getenv("LLM_BASE_URL")
             or os.getenv("OPENAI_BASE_URL")
-            or self.runtime_settings.get("chat_base_url")
             or "http://127.0.0.1:8080/v1"
         )
 
     def llm_model(self):
-        return os.getenv("LLAMA_CPP_MODEL") or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or self.runtime_settings.get("chat_model") or "local-model"
+        return self.runtime_settings.get("chat_model") or os.getenv("LLAMA_CPP_MODEL") or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or "local-model"
+
+    def chat_provider(self):
+        return self.runtime_settings.get("chat_provider") or os.getenv("LLM_PROVIDER") or "llama_cpp"
 
     def llm_chat_urls(self):
-        base = self.llm_base_url()
-        return [base + "/chat/completions"] if base.endswith("/v1") else [base + "/chat/completions", base + "/v1/chat/completions"]
+        return [chat_completions_url(self.llm_base_url())]
 
     def table_turn_temperature(self):
         """Return the effective Table Turn temperature with legacy fallback support."""
@@ -219,9 +242,10 @@ class Game:
 
 
     def llm_desc(self):
-        if (os.getenv("LLM_PROVIDER") or self.runtime_settings.get("chat_provider") or "llama_cpp") == "none":
+        if self.chat_provider() == "none":
             return "未設定。標準ライブラリのみのフォールバックで動作します。"
-        return "有効 provider=llama_cpp base_url=" + self.llm_base_url() + " model=" + self.llm_model() + " APIキーなし Proxy無効"
+        key_status = "あり" if self.runtime_settings.get("chat_api_key") else "なし"
+        return "有効 provider=" + self.chat_provider() + " base_url=" + self.llm_base_url() + " model=" + self.llm_model() + " APIキー" + key_status + " Proxy無効"
 
     def companion_banter_prompt(self):
         return (
@@ -645,7 +669,7 @@ class Game:
             print("reason=" + (reason or ""))
 
     def llm_chat(self, packet):
-        if (os.getenv("LLM_PROVIDER") or self.runtime_settings.get("chat_provider") or "llama_cpp") == "none":
+        if self.chat_provider() == "none":
             return ""
         system_prompt = (
             "仲間キャラの短い発言だけを書く。GM文は禁止。"
@@ -681,10 +705,10 @@ class Game:
 
     # ---------- Embedding ----------
     def emb_base_url(self):
-        return normalize_api_base_url(os.getenv("EMBEDDING_BASE_URL") or os.getenv("EMB_BASE_URL") or self.runtime_settings.get("embedding_base_url") or "http://127.0.0.1:8081/v1")
+        return normalize_api_base_url(self.runtime_settings.get("embedding_base_url") or os.getenv("EMBEDDING_BASE_URL") or os.getenv("EMB_BASE_URL") or "http://127.0.0.1:8081/v1")
 
     def emb_model(self):
-        return os.getenv("EMBEDDING_MODEL") or os.getenv("EMB_MODEL") or self.runtime_settings.get("embedding_model") or "local-embedding"
+        return self.runtime_settings.get("embedding_model") or os.getenv("EMBEDDING_MODEL") or os.getenv("EMB_MODEL") or "local-embedding"
 
     def emb_desc(self):
         return self.emb_base_url() + " model=" + self.emb_model()
@@ -759,7 +783,7 @@ class Game:
             return fallback
         if os.getenv("TABLE_TURN_RENDER", "1") == "1":
             return fallback
-        if (os.getenv("LLM_PROVIDER") or self.runtime_settings.get("chat_provider") or "llama_cpp") == "none":
+        if self.chat_provider() == "none":
             return fallback
         packet = dict(packet or {})
         packet["canonical_gm_text"] = canonical_text
@@ -3557,7 +3581,7 @@ class Game:
             print("[TABLE_TURN_SYSTEM]\n" + system_prompt)
             print("[TABLE_TURN_USER]\n" + body["messages"][1]["content"])
 
-        if (os.getenv("LLM_PROVIDER") or self.runtime_settings.get("chat_provider") or "llama_cpp") == "none":
+        if self.chat_provider() == "none":
             if hasattr(self, "rewrite_gm_notes"):
                 notes = self.rewrite_gm_notes(notes, it, res, ev, st)
             self.last_companion_turn = {}

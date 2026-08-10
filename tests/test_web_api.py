@@ -151,6 +151,44 @@ class WebApiTests(unittest.TestCase):
             self.assertEqual(3, self.client.post("/api/connections/embedding/test", json={}).json()["dimensions"])
         self.assertEqual(before, set(web_api.manager._sessions))
 
+    def test_gemini_connection_and_new_session_table_turn_share_latest_settings(self):
+        payload = {
+            "selected_scenario": "lighthouse",
+            "chat": {
+                "provider": "openai_compatible",
+                "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+                "model": "gemini-3.5-flash",
+                "api_key": "GEMINI-SECRET",
+            },
+            "embedding": {"base_url": "http://localhost:8081/v1", "model": "embed", "api_key": ""},
+        }
+        self.assertEqual(200, self.client.put("/api/settings", json=payload).status_code)
+        calls = []
+
+        def compatible_response(game, url, body, timeout, tag):
+            calls.append((game, url, body, tag))
+            return {"choices": [{"message": {"content": "GM: 風が吹いている。"}}]}
+
+        with patch("fixed_truth_ai_gm_mvp.Game.post_json", autospec=True, side_effect=compatible_response):
+            tested = self.client.post("/api/connections/chat/test", json={}).json()
+            self.assertTrue(tested["ok"])
+            _session_id, session = web_api.manager.create("lighthouse")
+            notes, _banter = session.game.render_table_turn(
+                ["GM: 風が吹いている。"],
+                {"raw": "海を見る", "action_type": "inspect"},
+                {"status": "ok", "category": "no_reveal"},
+                [],
+                session.state,
+            )
+
+        expected = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        self.assertEqual(["BANTER", "TABLE_TURN"], [call[3] for call in calls])
+        self.assertEqual([expected, expected], [call[1] for call in calls])
+        self.assertEqual("openai_compatible", session.game.runtime_settings["chat_provider"])
+        self.assertEqual("gemini-3.5-flash", session.game.runtime_settings["chat_model"])
+        self.assertEqual("GEMINI-SECRET", session.game.runtime_settings["chat_api_key"])
+        self.assertTrue(any("風が吹いている" in note for note in notes))
+
 
 if __name__ == "__main__":
     unittest.main()
