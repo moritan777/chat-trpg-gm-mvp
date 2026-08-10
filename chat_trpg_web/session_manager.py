@@ -4,6 +4,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from chat_trpg_web.settings import runtime_settings_from_effective
 from fixed_truth_ai_gm_mvp import GameSession
 from md_to_scenario import load_scenario_markdown
 
@@ -60,17 +61,7 @@ class SessionManager:
         options = {}
         if self.settings_service:
             effective = self.settings_service.effective()
-            options["runtime_settings"] = {
-                "chat_provider": effective["chat"]["provider"],
-                "chat_base_url": effective["chat"]["base_url"],
-                "chat_model": effective["chat"]["model"],
-                "chat_api_key": effective["chat"]["api_key"],
-                "embedding_base_url": effective["embedding"]["base_url"],
-                "embedding_model": effective["embedding"]["model"],
-                "embedding_api_key": effective["embedding"]["api_key"],
-                "table_turn_temperature": effective["advanced"]["table_turn_temperature"],
-                "discovery_display": effective["advanced"]["discovery_display"],
-            }
+            options["runtime_settings"] = runtime_settings_from_effective(effective)
         if self.debug_all:
             options.update(debug_judge=True, debug_llm=True, debug_embedding=True, echo_debug=True)
         session = GameSession(scenario_dir, **options)

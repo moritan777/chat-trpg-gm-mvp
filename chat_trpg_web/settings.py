@@ -22,6 +22,27 @@ DEFAULTS = {
 }
 
 
+def runtime_settings_from_effective(effective):
+    """Translate the canonical Web settings into the engine's flat settings."""
+    chat = effective["chat"]
+    embedding = effective["embedding"]
+    runtime_settings = {
+        "chat_provider": chat["provider"],
+        "chat_base_url": chat["base_url"],
+        "chat_model": chat["model"],
+        "chat_api_key": chat.get("api_key", ""),
+        "embedding_base_url": embedding["base_url"],
+        "embedding_model": embedding["model"],
+        "embedding_api_key": embedding.get("api_key", ""),
+    }
+    advanced = effective.get("advanced", {})
+    if "table_turn_temperature" in advanced:
+        runtime_settings["table_turn_temperature"] = advanced["table_turn_temperature"]
+    if "discovery_display" in advanced:
+        runtime_settings["discovery_display"] = advanced["discovery_display"]
+    return runtime_settings
+
+
 def settings_path(environ=None, platform=None, home=None):
     env = os.environ if environ is None else environ
     platform = os.name if platform is None else platform

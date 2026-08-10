@@ -172,7 +172,11 @@ class WebApiTests(unittest.TestCase):
         with patch("fixed_truth_ai_gm_mvp.Game.post_json", autospec=True, side_effect=compatible_response):
             tested = self.client.post("/api/connections/chat/test", json={}).json()
             self.assertTrue(tested["ok"])
-            _session_id, session = web_api.manager.create("lighthouse")
+            created = self.client.post(
+                "/api/sessions", json={"scenario_id": "lighthouse"}
+            )
+            self.assertEqual(201, created.status_code, created.text)
+            session = web_api.manager.get(created.json()["session_id"])
             notes, _banter = session.game.render_table_turn(
                 ["GM: 風が吹いている。"],
                 {"raw": "海を見る", "action_type": "inspect"},
@@ -187,6 +191,11 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual("openai_compatible", session.game.runtime_settings["chat_provider"])
         self.assertEqual("gemini-3.5-flash", session.game.runtime_settings["chat_model"])
         self.assertEqual("GEMINI-SECRET", session.game.runtime_settings["chat_api_key"])
+        self.assertEqual("gemini-3.5-flash", session.game.llm_model())
+        self.assertEqual(
+            ["gemini-3.5-flash", "gemini-3.5-flash"],
+            [call[2]["model"] for call in calls],
+        )
         self.assertTrue(any("風が吹いている" in note for note in notes))
 
 

@@ -2,6 +2,7 @@ import logging
 import re
 import time
 
+from chat_trpg_web.settings import runtime_settings_from_effective
 from fixed_truth_ai_gm_mvp import Game
 
 logger = logging.getLogger("uvicorn.error")
@@ -25,13 +26,7 @@ class ConnectionTester:
     def _game(self, effective):
         game = Game.__new__(Game)
         game.debug = game.debug_llm = game.debug_embedding = self.debug_all
-        game.runtime_settings = {
-            "chat_provider": effective["chat"]["provider"],
-            "chat_base_url": effective["chat"]["base_url"], "chat_model": effective["chat"]["model"],
-            "chat_api_key": effective["chat"].get("api_key", ""),
-            "embedding_base_url": effective["embedding"]["base_url"], "embedding_model": effective["embedding"]["model"],
-            "embedding_api_key": effective["embedding"].get("api_key", ""),
-        }
+        game.runtime_settings = runtime_settings_from_effective(effective)
         return game
 
     def chat(self, effective, timeout=10):
