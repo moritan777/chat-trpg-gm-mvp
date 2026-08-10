@@ -1,4 +1,6 @@
 import unittest
+from io import StringIO
+import logging
 from unittest.mock import patch
 
 from chat_trpg_web.connections import ConnectionTester
@@ -20,7 +22,46 @@ class ConnectionTests(unittest.TestCase):
         post.return_value = {"choices": [{"message": {"content": "OK"}}]}
         result = self.tester.chat(effective())
         self.assertTrue(result["ok"]); self.assertEqual("chat", result["service"])
-        self.assertEqual(3, post.call_args.args[1]["max_tokens"])
+        self.assertEqual(64, post.call_args.args[1]["max_tokens"])
+        self.assertEqual("local-model", result["response_model"])
+
+    @patch("fixed_truth_ai_gm_mvp.Game.post_json")
+    def test_chat_gemini_compatible_response_and_url(self, post):
+        post.return_value = {"choices": [{"message": {"content": "OK"}}], "model": "gemini-2.5-flash"}
+        config = effective("GEMINI-KEY")
+        config["chat"].update(base_url="https://generativelanguage.googleapis.com/v1beta/openai", model="gemini-2.5-flash")
+        result = self.tester.chat(config)
+        self.assertTrue(result["ok"])
+        self.assertEqual("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", post.call_args.args[0])
+        self.assertEqual(post.call_args.args[0], result["url"])
+        self.assertEqual("gemini-2.5-flash", result["response_model"])
+
+    @patch("fixed_truth_ai_gm_mvp.Game.post_json")
+    def test_chat_accepts_structured_text_content(self, post):
+        post.return_value = {"choices": [{"message": {"content": [{"type": "text", "text": "OK"}]}}]}
+        self.assertTrue(self.tester.chat(effective())["ok"])
+
+    @patch("fixed_truth_ai_gm_mvp.Game.post_json")
+    def test_chat_format_failure_has_detail_url_and_logs_json(self, post):
+        post.return_value = {"unexpected": True}
+        stream = StringIO()
+        handler = logging.StreamHandler(stream)
+        logging.getLogger("uvicorn.error").addHandler(handler)
+        try:
+            result = self.tester.chat(effective())
+        finally:
+            logging.getLogger("uvicorn.error").removeHandler(handler)
+        self.assertFalse(result["ok"])
+        self.assertIn("choices が存在しません", result["status"])
+        self.assertIn("実際のURL:", result["status"])
+        self.assertIn('"unexpected": true', stream.getvalue())
+
+    @patch("fixed_truth_ai_gm_mvp.Game.post_json")
+    def test_chat_error_object_has_specific_failure(self, post):
+        post.return_value = {"error": {"message": "provider detail"}}
+        result = self.tester.chat(effective())
+        self.assertIn("APIから error オブジェクトが返却されました", result["status"])
+        self.assertNotIn("provider detail", result["status"])
 
     @patch("fixed_truth_ai_gm_mvp.Game.post_json")
     def test_chat_auth_connection_and_timeout_are_safe(self, post):
