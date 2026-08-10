@@ -9,6 +9,11 @@ from fixed_truth_ai_gm_mvp import normalize_api_base_url
 
 
 SETTINGS_VERSION = 1
+CHAT_PROVIDERS = {
+    "llama_cpp": "ローカル llama.cpp",
+    "openai_compatible": "外部 OpenAI互換API",
+    "none": "LLMを使用しない",
+}
 DEFAULTS = {
     "settings_version": SETTINGS_VERSION,
     "selected_scenario": "lighthouse",
@@ -73,8 +78,8 @@ class SettingsService:
         chat = value.get("chat") or {}
         embedding = value.get("embedding") or {}
         provider = str(chat.get("provider", "llama_cpp")).strip()
-        if provider not in {"llama_cpp", "none"}:
-            raise ValueError("Chat Providerはllama_cppまたはnoneを指定してください。")
+        if provider not in CHAT_PROVIDERS:
+            raise ValueError("Chat Providerはllama_cpp、openai_compatible、noneのいずれかを指定してください。")
         result = {
             "settings_version": SETTINGS_VERSION,
             "selected_scenario": selected,
@@ -141,6 +146,8 @@ class SettingsService:
                 if env.get(name): return env[name], f"environment:{name}"
             return (stored, "settings.json") if self.path.exists() else (default, "default")
         provider, provider_source = choose(["LLM_PROVIDER"], self.saved["chat"]["provider"], "llama_cpp")
+        if provider not in CHAT_PROVIDERS:
+            provider = "llama_cpp"
         chat_url, chat_url_source = choose(["LLAMA_CPP_BASE_URL", "LLM_BASE_URL", "OPENAI_BASE_URL"], self.saved["chat"]["base_url"], DEFAULTS["chat"]["base_url"])
         chat_model, chat_model_source = choose(["LLAMA_CPP_MODEL", "LLM_MODEL", "OPENAI_MODEL"], self.saved["chat"]["model"], DEFAULTS["chat"]["model"])
         emb_url, emb_url_source = choose(["EMBEDDING_BASE_URL", "EMB_BASE_URL"], self.saved["embedding"]["base_url"], DEFAULTS["embedding"]["base_url"])
@@ -167,6 +174,9 @@ class SettingsService:
             "saved": deepcopy(self.saved),
             "effective": safe_effective,
             "api_keys": {"chat": self._key_status("chat"), "embedding": self._key_status("embedding")},
+            "chat_providers": [{"value": value, "label": label} for value, label in CHAT_PROVIDERS.items()],
+            "chat_provider_label": CHAT_PROVIDERS.get(effective["chat"]["provider"], effective["chat"]["provider"]),
+            "chat_disabled": effective["chat"]["provider"] == "none",
             "scenarios": self.scenario_provider(),
             "selected_scenario": self.saved["selected_scenario"],
             "warning": self.warning,
