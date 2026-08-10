@@ -1,5 +1,69 @@
 # Chat TTRPG GM MVP
 
+## ローカルWeb UI
+
+Python版をゲームルール、セッション状態、情報境界、LLM/Embedding判定の**唯一の正本**と
+します。Web UIは同じプロセスのFastAPIを操作する薄いフロントエンドであり、ゲーム処理を
+JavaScriptへ移植していません。CLIとWeb APIはどちらも`GameSession`を通じて既存の`Game`、
+`State`、`judge`、`resolve`、`render_table_turn`を使用します。
+
+以前のVite/TypeScript製静的プレビューとGitHub Pages公開構成は廃止しました。現在のWeb UIは
+ローカルPython APIと同一originから配信され、llama.cppへ直接接続しません。Node.js、npm、
+ブラウザ側のAPI接続設定は不要です。
+
+### 必要環境とインストール
+
+Python 3.10以降を使用してください。Web用の依存関係はFastAPIとUvicornです。`httpx`はAPIの
+自動テストに使用します。
+
+```bash
+python -m pip install -r requirements-web.txt
+```
+
+Windows PowerShellでも同じコマンドを使用できます。
+
+### LLM / EmbeddingとWeb APIの起動
+
+Chat用llama.cppとEmbedding用サーバーは、下記「LLM / Embedding 設定」の既存環境変数と
+各サーバーのインストール済みバージョンのヘルプに従って、Web APIより先に起動してください。
+Web専用の接続設定はなく、CLIと同じ`LLAMA_CPP_BASE_URL`、`EMBEDDING_BASE_URL`等を使用します。
+
+```bash
+python web_api.py
+```
+
+ブラウザで <http://127.0.0.1:8000> を開きます。Windowsでは`start_web.bat`でもブラウザと
+APIを起動できます。Uvicornを直接使用する場合は次のとおりです。
+
+```bash
+python -m uvicorn web_api:app --host 127.0.0.1 --port 8000
+```
+
+セッションはPythonプロセスのメモリ内だけに保存され、データベースやブラウザStorageには
+保存されません。API停止・再起動時には全セッションが失われます。このサーバーは認証、TLS、
+永続化を備えた外部公開用サーバーではありません。`127.0.0.1`でのローカル利用を前提とし、
+インターネットへ公開しないでください。
+
+### Web/APIテスト
+
+macOS/Linux:
+
+```bash
+LLM_PROVIDER=none EMBEDDING_PROVIDER=none python -m unittest discover -s tests -p "test*.py"
+```
+
+Windows PowerShell:
+
+```powershell
+$env:LLM_PROVIDER="none"
+$env:EMBEDDING_PROVIDER="none"
+python -m unittest discover -s tests -p "test*.py"
+```
+
+APIは`GET /api/health`、`GET /api/scenarios`、セッション作成・取得・コマンド送信・削除を
+提供します。レスポンスは現在地、終了状態、公開表示行だけを返し、発見済みID集合などの内部状態、
+シナリオの未公開情報、環境変数、APIキーを返しません。
+
 現行版: **v2.30.0 明示的な仲間ルーティング** (`v2.30.0 [explicit-companion-routing]`)
 
 バージョンの正本は `fixed_truth_ai_gm_mvp.py` の `VERSION` です。起動せずに
