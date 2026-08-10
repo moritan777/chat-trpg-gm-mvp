@@ -120,6 +120,30 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(400, self.client.put("/api/settings", json=empty_model).status_code)
         self.assertEqual(200, self.client.post("/api/settings/reset").status_code)
 
+    def test_openai_compatible_settings_are_accepted_by_api(self):
+        payload = {
+            "selected_scenario": "lighthouse",
+            "chat": {
+                "provider": "openai_compatible",
+                "base_url": "https://provider.example.invalid/v1/v1/",
+                "model": "contract-model",
+                "api_key": "CHAT-SECRET",
+            },
+            "embedding": {
+                "base_url": "http://localhost:8081/v1",
+                "model": "embed",
+                "api_key": "",
+            },
+        }
+        response = self.client.put("/api/settings", json=payload)
+        self.assertEqual(200, response.status_code, response.text)
+        body = response.json()
+        self.assertEqual("openai_compatible", body["saved"]["chat"]["provider"])
+        self.assertEqual("https://provider.example.invalid/v1", body["saved"]["chat"]["base_url"])
+        self.assertEqual("外部 OpenAI互換API", body["chat_provider_label"])
+        self.assertNotIn("CHAT-SECRET", response.text)
+        self.assertNotIn("CHAT-SECRET", Path(body["settings_path"]).read_text(encoding="utf-8"))
+
     def test_connection_endpoints_do_not_create_game_session(self):
         before = set(web_api.manager._sessions)
         with patch.object(web_api.connection_tester, "chat", return_value={"ok": True, "service": "chat"}), patch.object(web_api.connection_tester, "embedding", return_value={"ok": True, "service": "embedding", "dimensions": 3}):

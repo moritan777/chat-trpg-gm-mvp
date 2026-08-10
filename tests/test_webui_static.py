@@ -59,5 +59,10 @@ class WebUiStaticTests(unittest.TestCase):
         for provider in ("llama_cpp", "openai_compatible", "none"):
             self.assertIn(f'value="{provider}"', self.html)
 
+    def test_stale_python_server_is_detected_and_explained(self):
+        self.assertIn("data.chat_providers", self.script)
+        self.assertIn("更新後はWebサーバーを再起動してください", self.script)
+        self.assertIn("Chat Providerはllama_cppまたはnone", self.script)
+
 
 if __name__ == "__main__": unittest.main()

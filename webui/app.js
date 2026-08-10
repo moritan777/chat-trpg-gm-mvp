@@ -116,6 +116,9 @@ function toggleKeyField(service) {
 }
 function showSettings(data) {
   publicSettings = data;
+  const supportedProviders = Array.isArray(data.chat_providers) ? data.chat_providers.map((item) => item.value) : ["llama_cpp", "none"];
+  const externalOption = byId("chat-provider").querySelector('option[value="openai_compatible"]');
+  externalOption.disabled = !supportedProviders.includes("openai_compatible");
   hasSavedSettings = data.effective.sources.selected_scenario === "settings.json";
   byId("settings-path").textContent = data.settings_path;
   scenarioSelect.replaceChildren(...data.scenarios.map((scenario) => {
@@ -142,7 +145,9 @@ function showSettings(data) {
   byId("embedding-key-status").textContent = `APIキー: ${keyStatusText("embedding")}`;
   byId("first-run-guide").hidden = hasSavedSettings;
   settingsDetails.open = !hasSavedSettings || Boolean(data.warning);
-  settingsMessage.textContent = data.warning || "接続テストを推奨します。保存済み設定または初期設定で開始できます。";
+  settingsMessage.textContent = !supportedProviders.includes("openai_compatible")
+    ? "起動中のPython APIは外部OpenAI互換Providerに対応していません。更新後はWebサーバーを再起動してください。"
+    : data.warning || "接続テストを推奨します。保存済み設定または初期設定で開始できます。";
   updateSummary();
 }
 async function loadSettings() {
@@ -155,7 +160,12 @@ async function saveSettings() {
   try {
     const data = await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formSettings()) });
     showSettings(data); settingsDetails.open = false; settingsMessage.textContent = "設定を保存しました。新しいゲームから反映されます。";
-  } catch (error) { settingsMessage.textContent = error.message; settingsDetails.open = true; }
+  } catch (error) {
+    settingsMessage.textContent = error.message.includes("Chat Providerはllama_cppまたはnone")
+      ? "起動中のPython APIが古いため保存できません。Webサーバーを停止し、更新後のコードで再起動してください。"
+      : error.message;
+    settingsDetails.open = true;
+  }
 }
 async function testConnection(service) {
   const button = byId(`${service}-test`); const result = byId(`${service}-result`);

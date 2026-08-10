@@ -86,6 +86,12 @@ Authorizationヘッダーは指定したChat Base URLへのPython側リクエス
 外部APIへ接続しません。ChatとEmbeddingのURL、Model、API Keyは独立しているため、たとえば外部
 OpenAI互換Chatと`http://127.0.0.1:8081/v1`のローカルEmbeddingを併用できます。
 
+> **更新後の再起動:** Pythonは起動時にProviderの許可値を読み込みます。コード更新前から
+> `web_api.py`を起動したままの場合、画面だけが更新されて保存時に
+> 「Chat Providerはllama_cppまたはnone」と表示されることがあります。Webサーバーを一度停止し、
+> 更新後のコードで起動し直してください。画面はAPIが対応Provider一覧を返さない場合にも再起動を
+> 案内し、未対応の外部Providerを選択できないようにします。
+
 「Chat接続テスト」と「Embedding接続テスト」は、画面にある未保存の値をPython APIへ送り、
 短いリクエストで確認します。ゲームセッションや履歴は作成・変更しません。接続テストは推奨ですが、
 保存済み設定または初期設定があれば省略して開始できます。`LLM_PROVIDER=none`を使う既存CLI・
