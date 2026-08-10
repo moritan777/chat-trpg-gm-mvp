@@ -163,6 +163,291 @@ APIキー環境変数名は追加していません。
 `start_web.bat`は依存関係を確認してAPIとブラウザを起動するランチャー専用です。URL、モデル、
 シナリオ、APIキーを保持・変更したり、llama.cppを自動起動・終了したりしません。
 
+## 推奨LLM設定
+
+ここでいう「推奨」は品質や将来の動作を保証するものではなく、今回のWeb版で実際に接続と
+基本プレイを確認できた構成を示します。
+
+### Gemini APIを使う場合
+
+Chat設定は次のとおりです。
+
+```text
+Provider:
+openai_compatible
+
+Base URL:
+https://generativelanguage.googleapis.com/v1beta/openai
+
+Model:
+gemini-3.5-flash
+
+API Key:
+Google AI Studioなどで取得したGemini APIキー
+```
+
+Embedding設定は次のとおりです。
+
+```text
+Base URL:
+https://generativelanguage.googleapis.com/v1beta/openai
+
+Model:
+gemini-embedding-2
+
+API Key:
+Chatと同じGemini APIキー
+```
+
+この構成では、Chat接続テスト、Embedding接続テスト、`TABLE_TURN`によるGM応答、仲間1名への
+直接会話、仲間4名での会話、仲間ごとの発言者分類、仲間会話履歴への保存を動作確認済みです。
+`gemini-3.5-flash`では、ニコは場面から別の記憶や出来事へ連想し、ピピは仲間やNPCの状態を
+気遣い、クロは怪談・事件・誇張した仮説へ広げ、ガランは具体的な行動を提案するという役割分担も
+概ね反映されました。
+
+> [!NOTE]
+> この設定はWeb版で接続テスト、Embedding、TABLE_TURN、仲間会話を確認した構成です。モデル提供側の仕様変更やAPI制限により、将来も同じ動作を保証するものではありません。
+
+### llama.cppを使う場合
+
+既存の動作確認実績に基づくローカルLLMの推奨モデルは**Gemma 3 12B**です。モデルファイル名や
+量子化方式はVRAM、RAM、CPU構成によって異なるため、特定のGGUFファイル名は固定推奨しません。
+VRAM 8GBの環境では、量子化モデルの選択やコンテキスト長の調整が必要になる可能性があります。
+
+Chat用llama.cppの設定例です。
+
+```text
+Provider:
+llama_cpp
+
+Base URL:
+http://127.0.0.1:8080/v1
+
+Model:
+local-model
+
+API Key:
+空欄
+```
+
+Embedding用llama.cppの設定例です。
+
+```text
+Base URL:
+http://127.0.0.1:8081/v1
+
+Model:
+local-embedding
+
+API Key:
+空欄
+```
+
+Chat用とEmbedding用は別モデル、別ポートで起動する構成です。`local-model`と
+`local-embedding`は、それぞれのllama.cppサーバー側が受け付けるモデル識別子に合わせてください。
+ローカル運用からGeminiへ切り替える場合は、次の環境変数が残っていないか確認してください。
+必要なローカル設定まで無条件に削除せず、下記の優先順位と各変数の用途を確認してから変更します。
+
+```text
+LLAMA_CPP_BASE_URL
+LLAMA_CPP_MODEL
+LLM_BASE_URL
+LLM_MODEL
+OPENAI_BASE_URL
+OPENAI_MODEL
+EMBEDDING_BASE_URL
+EMBEDDING_MODEL
+EMB_BASE_URL
+EMB_MODEL
+```
+
+## Web設定が反映されない場合
+
+過去にコマンドライン版やllama.cppを利用していた環境では、LLM関連の環境変数が残っている場合が
+あります。環境変数が設定されていると、Web UIで別のBase URLやモデルを入力して保存しても、
+有効設定を生成する段階で環境変数の値が優先される場合があります。たとえば次の値が残っていると、
+Web UIで`gemini-3.5-flash`を指定しても実ゲームでは`local-model`が使用されます。
+
+```powershell
+LLAMA_CPP_MODEL=local-model
+```
+
+この状態では接続テストに成功しても、実ゲームのTABLE_TURNが次のログになり得ます。
+
+```text
+[TABLE_TURN_CONFIG]
+model=local-model
+```
+
+```text
+[TABLE_TURN_STATUS] 404 Not Found
+```
+
+Windows PowerShellでは、影響しそうな環境変数を次のように確認できます。
+
+```powershell
+Get-ChildItem Env: |
+  Where-Object Name -Match 'LLAMA_CPP|LLM_|OPENAI_|TABLE_TURN'
+```
+
+個別に確認する例です。
+
+```powershell
+Get-ChildItem Env:LLAMA_CPP_MODEL,Env:LLM_MODEL,Env:OPENAI_MODEL `
+  -ErrorAction SilentlyContinue
+```
+
+現在のPowerShellプロセスからモデルの上書きを削除する例です。これらの値を別用途でも使って
+いないことを確認して、必要なものだけを削除してください。
+
+```powershell
+Remove-Item Env:LLAMA_CPP_MODEL -ErrorAction SilentlyContinue
+Remove-Item Env:LLM_MODEL -ErrorAction SilentlyContinue
+Remove-Item Env:OPENAI_MODEL -ErrorAction SilentlyContinue
+```
+
+TABLE_TURNの上書きを解除する場合は次を実行します。
+
+```powershell
+Remove-Item Env:TABLE_TURN_MAX_TOKENS -ErrorAction SilentlyContinue
+```
+
+削除後は、環境変数を削除したものと同じPowerShellからWeb APIを再起動してください。
+
+```powershell
+python web_api.py --debug-all
+```
+
+新しいPowerShellを開くと値が復活する場合は、ユーザー環境変数またはシステム環境変数に登録されて
+いる可能性があります。ユーザー環境変数の確認例と削除例は次のとおりです。
+
+```powershell
+[Environment]::GetEnvironmentVariable("LLAMA_CPP_MODEL", "User")
+```
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+    "LLAMA_CPP_MODEL",
+    $null,
+    "User"
+)
+```
+
+システム環境変数の変更には管理者権限が必要になる場合があります。影響を受けるほかのアプリケーション
+も確認し、利用者が意図した変数だけを変更してください。
+
+### `--debug-all`による確認手順
+
+Web APIを次のように起動します。
+
+```powershell
+python web_api.py --debug-all
+```
+
+Chat接続では次の設定と成功ステータスを確認します。
+
+```text
+[BANTER_CONFIG]
+provider=openai_compatible
+model=gemini-3.5-flash
+api_key_configured=true
+
+[BANTER_STATUS] 200 OK
+```
+
+Embedding接続では次を確認します。
+
+```text
+[EMB_CONFIG]
+model=gemini-embedding-2
+api_key_configured=true
+
+[EMB_STATUS] 200 OK
+```
+
+実ゲームでは次を確認します。
+
+```text
+[TABLE_TURN_CONFIG]
+provider=openai_compatible
+model=gemini-3.5-flash
+api_key_configured=true
+
+[TABLE_TURN_STATUS] 200 OK
+
+Table turn speaker classification:
+gm=1 companion=4 npc=0 dropped=[]
+```
+
+`api_key_configured=true`はAPIキーが設定されていることだけを表します。APIキー本体はログへ
+出力されません。
+
+### トラブルシューティング
+
+#### 接続テストは成功するが、実ゲームだけ404になる
+
+`TABLE_TURN_CONFIG`と`TABLE_TURN_BODY`のモデル名を確認します。Gemini利用時に
+`model=local-model`なら誤った設定で、`model=gemini-3.5-flash`が期待する設定です。
+`LLAMA_CPP_MODEL`など、モデルを上書きする環境変数が残っていないか確認してください。
+
+#### 仲間の台詞が途中で切れる
+
+ログの`finish_reason=length`と`[TABLE_TURN_TRUNCATED]`を確認し、
+`TABLE_TURN_MAX_TOKENS`が小さい値で上書きされていないか次のコマンドで確認します。
+
+```powershell
+Get-ChildItem Env:TABLE_TURN_MAX_TOKENS `
+  -ErrorAction SilentlyContinue
+```
+
+#### Web UIで保存したモデルと実ゲームのモデルが違う
+
+次の3つを比較します。値が異なる場合は、モデル関連の環境変数を確認してください。
+
+```text
+[BANTER_CONFIG] model=...
+[TABLE_TURN_CONFIG] model=...
+[TABLE_TURN_BODY] model=...
+```
+
+## TABLE_TURNの出力上限
+
+TABLE_TURNの`max_tokens`の既定値は`2048`です。環境変数`TABLE_TURN_MAX_TOKENS`で上書き
+できます。PowerShellで`3072`へ変更して起動する例です。
+
+```powershell
+$env:TABLE_TURN_MAX_TOKENS = "3072"
+python web_api.py --debug-all
+```
+
+既定値へ戻す場合は、現在のPowerShellから上書きを削除して再起動します。
+
+```powershell
+Remove-Item Env:TABLE_TURN_MAX_TOKENS -ErrorAction SilentlyContinue
+python web_api.py --debug-all
+```
+
+値には整数文字列を指定する必要があります。空文字または整数以外を指定するとエラーになります。
+`--debug-all`では、正常時に次のように送信内容を確認できます。
+
+```text
+[TABLE_TURN_BODY]
+model='gemini-3.5-flash'
+messages=2
+max_tokens=2048
+```
+
+出力上限に達した場合は次のログが表示されます。
+
+```text
+[TABLE_TURN_TRUNCATED]
+finish_reason=length
+max_tokens=2048
+```
+
+`finish_reason=length`の場合は、台詞が途中で切れたり、明示的に指定した仲間全員が発言できなかったり
+する可能性があります。
+
 ### Web/APIテスト
 
 macOS/Linux:
