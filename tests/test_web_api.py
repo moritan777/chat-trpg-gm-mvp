@@ -1,13 +1,17 @@
 import os
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ["LLM_PROVIDER"] = "none"
 os.environ["EMBEDDING_PROVIDER"] = "none"
 
 try:
     from fastapi.testclient import TestClient
-    from web_api import app
+    import web_api
+    from chat_trpg_web.settings import SettingsService
+    app = web_api.app
 except ImportError:
     TestClient = None
     app = None
@@ -18,6 +22,15 @@ class WebApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(app)
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        service = SettingsService(Path(self.temp.name) / "settings.json", environ={}, scenario_provider=web_api.catalog.list_public)
+        web_api.settings_service = service
+        web_api.manager.settings_service = service
+
+    def tearDown(self):
+        self.temp.cleanup()
 
     def create_session(self):
         response = self.client.post("/api/sessions", json={"scenario_id": "lighthouse"})
@@ -82,6 +95,37 @@ class WebApiTests(unittest.TestCase):
         self.assertNotIn("innerHTML", script.text)
         self.assertIn("textContent", script.text)
         self.assertNotIn("LLAMA_CPP_BASE_URL", script.text)
+        for forbidden in ("localStorage", "sessionStorage", "innerHTML", "console."):
+            self.assertNotIn(forbidden, script.text)
+
+    def test_settings_get_put_clear_reset_and_validation(self):
+        initial = self.client.get("/api/settings")
+        self.assertEqual(200, initial.status_code)
+        payload = {
+            "selected_scenario": "lighthouse",
+            "chat": {"provider": "llama_cpp", "base_url": "http://localhost:8080/v1/", "model": "chat", "api_key": "CHAT-SECRET"},
+            "embedding": {"base_url": "http://localhost:8081/v1", "model": "embed", "api_key": "EMB-SECRET"},
+        }
+        saved = self.client.put("/api/settings", json=payload)
+        self.assertEqual(200, saved.status_code)
+        self.assertNotIn("SECRET", saved.text)
+        self.assertNotIn("SECRET", Path(saved.json()["settings_path"]).read_text(encoding="utf-8"))
+        self.assertTrue(saved.json()["api_keys"]["chat"]["configured"])
+        cleared = self.client.post("/api/settings/secrets/clear")
+        self.assertFalse(cleared.json()["api_keys"]["chat"]["configured"])
+        self.assertEqual(400, self.client.put("/api/settings", json={**payload, "selected_scenario": "missing"}).status_code)
+        bad_url = {**payload, "chat": {**payload["chat"], "base_url": "file:///tmp/key"}}
+        self.assertEqual(400, self.client.put("/api/settings", json=bad_url).status_code)
+        empty_model = {**payload, "embedding": {**payload["embedding"], "model": " "}}
+        self.assertEqual(400, self.client.put("/api/settings", json=empty_model).status_code)
+        self.assertEqual(200, self.client.post("/api/settings/reset").status_code)
+
+    def test_connection_endpoints_do_not_create_game_session(self):
+        before = set(web_api.manager._sessions)
+        with patch.object(web_api.connection_tester, "chat", return_value={"ok": True, "service": "chat"}), patch.object(web_api.connection_tester, "embedding", return_value={"ok": True, "service": "embedding", "dimensions": 3}):
+            self.assertTrue(self.client.post("/api/connections/chat/test", json={}).json()["ok"])
+            self.assertEqual(3, self.client.post("/api/connections/embedding/test", json={}).json()["dimensions"])
+        self.assertEqual(before, set(web_api.manager._sessions))
 
 
 if __name__ == "__main__":

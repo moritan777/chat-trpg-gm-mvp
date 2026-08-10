@@ -33,6 +33,17 @@ STANDARD_SKILLS = {
 }
 
 
+def normalize_api_base_url(value):
+    value = str(value or "").strip().rstrip("/")
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment:
+        raise ValueError("invalid HTTP API base URL")
+    path = parsed.path.rstrip("/")
+    while path.endswith("/v1/v1"):
+        path = path[:-3]
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
 class State:
     def __init__(self, loc):
         self.location = loc
@@ -45,7 +56,7 @@ class Game:
 
     MAX_CONVERSATION_CONTINUE_TURNS = 5
 
-    def __init__(self, scenario_dir, debug_judge=False, debug_llm=False, debug_embedding=False, dice_total=None, skill_dice_total=None, dice_seed=None):
+    def __init__(self, scenario_dir, debug_judge=False, debug_llm=False, debug_embedding=False, dice_total=None, skill_dice_total=None, dice_seed=None, runtime_settings=None):
         self.scenario_dir = Path(scenario_dir)
         self.sc = json.loads((self.scenario_dir / "scenario.json").read_text(encoding="utf-8"))
         self.debug = debug_judge
@@ -54,6 +65,7 @@ class Game:
         self.dice_total = dice_total
         self.skill_dice_total = skill_dice_total
         self.rng = random.Random(dice_seed)
+        self.runtime_settings = dict(runtime_settings or {})
         self.locs = {x["id"]: x for x in self.sc.get("locations", [])}
         self.objects = {x["id"]: x for x in self.sc.get("objects", [])}
         self.npcs = {x["id"]: x for x in self.sc.get("npcs", [])}
@@ -123,16 +135,20 @@ class Game:
             print(f"[{tag}_BYTES]", len(payload))
         t0 = time.perf_counter()
         conn = http.client.HTTPSConnection(host, port, timeout=timeout_sec) if u.scheme == "https" else http.client.HTTPConnection(host, port, timeout=timeout_sec)
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Content-Length": str(len(payload)),
+        }
+        secret = self.runtime_settings.get("embedding_api_key" if tag == "EMB" else "chat_api_key", "")
+        if secret:
+            headers["Authorization"] = "Bearer " + secret
         try:
             conn.request(
                 "POST",
                 path,
                 body=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "Content-Length": str(len(payload)),
-                },
+                headers=headers,
             )
             resp = conn.getresponse()
             raw = resp.read().decode("utf-8", "replace")
@@ -148,15 +164,20 @@ class Game:
 
     # ---------- LLM ----------
     def llm_base_url(self):
-        return (
+        return normalize_api_base_url(
             os.getenv("LLAMA_CPP_BASE_URL")
             or os.getenv("LLM_BASE_URL")
             or os.getenv("OPENAI_BASE_URL")
+            or self.runtime_settings.get("chat_base_url")
             or "http://127.0.0.1:8080/v1"
-        ).rstrip("/")
+        )
 
     def llm_model(self):
-        return os.getenv("LLAMA_CPP_MODEL") or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or "local-model"
+        return os.getenv("LLAMA_CPP_MODEL") or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or self.runtime_settings.get("chat_model") or "local-model"
+
+    def llm_chat_urls(self):
+        base = self.llm_base_url()
+        return [base + "/chat/completions"] if base.endswith("/v1") else [base + "/chat/completions", base + "/v1/chat/completions"]
 
     def table_turn_temperature(self):
         """Return the effective Table Turn temperature with legacy fallback support."""
@@ -164,7 +185,7 @@ class Game:
         value = os.getenv(variable)
         if value is None:
             variable = "GM_LINE_REWRITE_TEMPERATURE"
-            value = os.getenv(variable, "0.9")
+            value = os.getenv(variable, self.runtime_settings.get("table_turn_temperature", "0.9"))
         try:
             return float(value)
         except ValueError as exc:
@@ -175,7 +196,7 @@ class Game:
 
 
     def llm_desc(self):
-        if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
+        if (os.getenv("LLM_PROVIDER") or self.runtime_settings.get("chat_provider") or "llama_cpp") == "none":
             return "未設定。標準ライブラリのみのフォールバックで動作します。"
         return "有効 provider=llama_cpp base_url=" + self.llm_base_url() + " model=" + self.llm_model() + " APIキーなし Proxy無効"
 
@@ -601,7 +622,7 @@ class Game:
             print("reason=" + (reason or ""))
 
     def llm_chat(self, packet):
-        if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
+        if (os.getenv("LLM_PROVIDER") or self.runtime_settings.get("chat_provider") or "llama_cpp") == "none":
             return ""
         system_prompt = (
             "仲間キャラの短い発言だけを書く。GM文は禁止。"
@@ -620,8 +641,7 @@ class Game:
         if self.debug_llm:
             print("[BANTER_SYSTEM]\n" + system_prompt)
             print("[BANTER_USER]\n" + body["messages"][1]["content"])
-        base = self.llm_base_url()
-        urls = [base + "/chat/completions"] if base.endswith("/v1") else [base + "/chat/completions", base + "/v1/chat/completions"]
+        urls = self.llm_chat_urls()
         for url in urls:
             try:
                 data = self.post_json(url, body, int(os.getenv("BANTER_TIMEOUT", "60")), "BANTER")
@@ -638,10 +658,10 @@ class Game:
 
     # ---------- Embedding ----------
     def emb_base_url(self):
-        return (os.getenv("EMBEDDING_BASE_URL") or os.getenv("EMB_BASE_URL") or "http://127.0.0.1:8081/v1").rstrip("/")
+        return normalize_api_base_url(os.getenv("EMBEDDING_BASE_URL") or os.getenv("EMB_BASE_URL") or self.runtime_settings.get("embedding_base_url") or "http://127.0.0.1:8081/v1")
 
     def emb_model(self):
-        return os.getenv("EMBEDDING_MODEL") or os.getenv("EMB_MODEL") or "local-embedding"
+        return os.getenv("EMBEDDING_MODEL") or os.getenv("EMB_MODEL") or self.runtime_settings.get("embedding_model") or "local-embedding"
 
     def emb_desc(self):
         return self.emb_base_url() + " model=" + self.emb_model()
@@ -660,7 +680,7 @@ class Game:
         raise RuntimeError("unsupported embedding response shape")
 
     def get_embeddings(self, texts):
-        if os.getenv("EMBEDDING_PROVIDER", "local") == "none" or self.emb_disabled:
+        if (os.getenv("EMBEDDING_PROVIDER") or self.runtime_settings.get("embedding_provider") or "local") == "none" or self.emb_disabled:
             return None
         result, missing, missing_idx = [], [], []
         for idx, text in enumerate(texts):
@@ -716,7 +736,7 @@ class Game:
             return fallback
         if os.getenv("TABLE_TURN_RENDER", "1") == "1":
             return fallback
-        if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
+        if (os.getenv("LLM_PROVIDER") or self.runtime_settings.get("chat_provider") or "llama_cpp") == "none":
             return fallback
         packet = dict(packet or {})
         packet["canonical_gm_text"] = canonical_text
@@ -768,8 +788,7 @@ class Game:
             "temperature": float(os.getenv("GM_REWRITE_TEMPERATURE", os.getenv("GM_COMMENTARY_TEMPERATURE", "0.45"))),
             "max_tokens": int(os.getenv("GM_REWRITE_MAX_TOKENS", os.getenv("GM_COMMENTARY_MAX_TOKENS", "220"))),
         }
-        base = self.llm_base_url()
-        urls = [base + "/chat/completions"] if base.endswith("/v1") else [base + "/chat/completions", base + "/v1/chat/completions"]
+        urls = self.llm_chat_urls()
         for url in urls:
             try:
                 data = self.post_json(url, body, int(os.getenv("GM_REWRITE_TIMEOUT", os.getenv("GM_COMMENTARY_TIMEOUT", "45"))), "GM_REWRITE")
@@ -3350,7 +3369,7 @@ class Game:
         if not canonical_gm:
             return notes, self.banter(it, res, ev, st)
 
-        discovery_display = os.getenv("DISCOVERY_DISPLAY", "gm").strip().lower()
+        discovery_display = os.getenv("DISCOVERY_DISPLAY", self.runtime_settings.get("discovery_display", "gm")).strip().lower()
         if discovery_display not in {"gm", "tag", "both"}:
             discovery_display = "gm"
         official_gm_lines = self.official_discovery_gm_lines(ev)
@@ -3501,14 +3520,13 @@ class Game:
             print("[TABLE_TURN_SYSTEM]\n" + system_prompt)
             print("[TABLE_TURN_USER]\n" + body["messages"][1]["content"])
 
-        if os.getenv("LLM_PROVIDER", "llama_cpp") == "none":
+        if (os.getenv("LLM_PROVIDER") or self.runtime_settings.get("chat_provider") or "llama_cpp") == "none":
             if hasattr(self, "rewrite_gm_notes"):
                 notes = self.rewrite_gm_notes(notes, it, res, ev, st)
             self.last_companion_turn = {}
             return fallback_notes_with_official_discoveries(notes), ""
 
-        base = self.llm_base_url()
-        urls = [base + "/chat/completions"] if base.endswith("/v1") else [base + "/chat/completions", base + "/v1/chat/completions"]
+        urls = self.llm_chat_urls()
         out = ""
         for url in urls:
             try:

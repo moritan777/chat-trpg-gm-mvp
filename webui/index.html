@@ -11,8 +11,33 @@
   <main>
     <h1>Chat TTRPG GM</h1>
     <p id="connection" role="status">Python APIへ接続中…</p>
-    <section class="card">
+    <section id="settings-panel" class="card">
+      <h2>設定</h2>
+      <p>設定変更は次に開始するゲームから反映されます。ゲーム中は設定を変更できません。</p>
+      <p>保存先: <code id="settings-path"></code></p>
       <label>シナリオ <select id="scenario"></select></label>
+      <small id="scenario-source"></small>
+      <fieldset><legend>Chat LLM</legend>
+        <label>Provider <select id="chat-provider"><option value="llama_cpp">llama_cpp</option><option value="none">none（LLM無効）</option></select></label>
+        <small id="chat-provider-source"></small>
+        <label>Base URL <input id="chat-url" type="url" required></label>
+        <small id="chat-url-source"></small>
+        <label>Model <input id="chat-model" required></label>
+        <small id="chat-model-source"></small>
+        <label>API Key <input id="chat-key" type="password" autocomplete="off"></label>
+        <p id="chat-key-status"></p><button id="chat-test">Chat接続テスト</button><p id="chat-result" role="status"></p>
+      </fieldset>
+      <fieldset><legend>Embedding</legend>
+        <label>Base URL <input id="embedding-url" type="url" required></label>
+        <small id="embedding-url-source"></small>
+        <label>Model <input id="embedding-model" required></label>
+        <small id="embedding-model-source"></small>
+        <label>API Key <input id="embedding-key" type="password" autocomplete="off"></label>
+        <p id="embedding-key-status"></p><button id="embedding-test">Embedding接続テスト</button><p id="embedding-result" role="status"></p>
+      </fieldset>
+      <p>APIキーはsettings.jsonへ保存されず、Pythonプロセスのメモリだけで保持されます。</p>
+      <div class="actions"><button id="save-settings">設定を保存</button><button id="reset-settings">初期設定へ戻す</button><button id="clear-keys">APIキーを削除</button></div>
+      <p id="settings-message" role="status"></p>
       <button id="start">ゲーム開始</button>
       <button id="new-game">新しいゲーム</button>
     </section>

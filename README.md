@@ -9,7 +9,10 @@ JavaScriptへ移植していません。CLIとWeb APIはどちらも`GameSession
 
 以前のVite/TypeScript製静的プレビューとGitHub Pages公開構成は廃止しました。現在のWeb UIは
 ローカルPython APIと同一originから配信され、llama.cppへ直接接続しません。Node.js、npm、
-ブラウザ側のAPI接続設定は不要です。
+ブラウザから外部APIへ直接接続する構成は不要です。
+
+Web画面にはPython側の接続設定フォームがありますが、これは同一originの`/api/*`へ保存・
+接続テストを依頼するだけです。ブラウザからllama.cppへ直接接続するものではありません。
 
 ### 必要環境とインストール
 
@@ -43,6 +46,76 @@ python -m uvicorn web_api:app --host 127.0.0.1 --port 8000
 保存されません。API停止・再起動時には全セッションが失われます。このサーバーは認証、TLS、
 永続化を備えた外部公開用サーバーではありません。`127.0.0.1`でのローカル利用を前提とし、
 インターネットへ公開しないでください。
+
+### 初回設定
+
+初回起動時に画面上部の設定欄を確認します。
+
+* **シナリオ:** プレイする作者シナリオ。前回保存した選択を復元します。
+* **Chat Provider:** 通常は`llama_cpp`。`none`はLLMを無効にする既存の開発・テスト用設定です。
+* **Chat Base URL:** 既定値は`http://127.0.0.1:8080/v1`です。
+* **Chat Model:** Chatサーバーへ送るOpenAI互換APIのモデル名。既定値は`local-model`です。
+* **Embedding Base URL:** 既定値は`http://127.0.0.1:8081/v1`です。
+* **Embedding Model:** Embeddingサーバーへ送るモデル名。既定値は`local-embedding`です。
+* **API Key:** API提供者が要求する場合だけ入力します。通常のローカルllama.cppでは空欄で
+  構いません。Chat用とEmbedding用は別々です。
+
+「Chat接続テスト」と「Embedding接続テスト」は、画面にある未保存の値をPython APIへ送り、
+短いリクエストで確認します。ゲームセッションや履歴は作成・変更しません。接続テストは推奨ですが、
+保存済み設定または初期設定があれば省略して開始できます。`LLM_PROVIDER=none`を使う既存CLI・
+テスト経路にも接続テストは要求しません。
+
+設定を保存した後の変更は、すでに進行中のゲームへは適用されず、次に開始するゲームから有効です。
+「新しいゲーム」で設定欄を再び有効にできます。「初期設定へ戻す」は保存ファイルとメモリ上の
+APIキーを削除し、「APIキーを削除」は一般設定を残したままメモリ上のキーだけを削除します。
+
+### 設定ファイルと優先順位
+
+一般設定はUTF-8 JSONとして保存します。Windowsでは
+`%LOCALAPPDATA%\ChatTtrpgGm\settings.json`、その他のOSでは`$XDG_CONFIG_HOME/chat-ttrpg-gm/settings.json`
+または`~/.config/chat-ttrpg-gm/settings.json`です。実際のパスは画面に表示されます。
+
+```json
+{
+  "settings_version": 1,
+  "selected_scenario": "lighthouse",
+  "chat": {
+    "provider": "llama_cpp",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "model": "local-model"
+  },
+  "embedding": {
+    "base_url": "http://127.0.0.1:8081/v1",
+    "model": "local-embedding"
+  }
+}
+```
+
+APIキーはこのJSONへ保存しません。Pythonプロセスのメモリだけに保持するため、API停止時に
+失われます。ブラウザへキーを再表示せず、設定済みかどうかだけを表示します。OS資格情報ストアは
+今回使用していません。空欄で一般設定だけを更新した場合はメモリ上の既存キーを維持し、削除は
+専用の「APIキーを削除」操作で行います。設定ファイルが破損している場合は内容を画面へ出さず初期設定へ戻り、警告を
+表示します。未知の項目は無視し、保存時には既知の項目だけを書き込みます。保存済みシナリオが
+削除されていれば先頭の利用可能なシナリオを一時選択し、ファイルを無断更新せず警告します。
+
+適用優先順位は次のとおりです。
+
+1. 既存CLIの明示引数（ダイス値、debug等）
+2. 既存の環境変数
+3. WebからPythonプロセスへ渡したメモリ上のAPIキー
+4. `settings.json`
+5. 既存Pythonエンジンの既定値
+
+Chat URLは`LLAMA_CPP_BASE_URL`、`LLM_BASE_URL`、`OPENAI_BASE_URL`の順、Chat Modelは
+`LLAMA_CPP_MODEL`、`LLM_MODEL`、`OPENAI_MODEL`の順です。Embedding URLは
+`EMBEDDING_BASE_URL`、`EMB_BASE_URL`の順、Modelは`EMBEDDING_MODEL`、`EMB_MODEL`の順です。
+`TABLE_TURN_TEMPERATURE`（旧互換`GM_LINE_REWRITE_TEMPERATURE`）と`DISCOVERY_DISPLAY`も既存の
+環境変数を優先します。各項目の現在値と設定元は設定画面に表示されるため、保存値が環境変数で
+上書きされている場合も確認できます。既存実装にはAPIキー用環境変数がなかったため、新しい
+APIキー環境変数名は追加していません。
+
+`start_web.bat`は依存関係を確認してAPIとブラウザを起動するランチャー専用です。URL、モデル、
+シナリオ、APIキーを保持・変更したり、llama.cppを自動起動・終了したりしません。
 
 ### Web/APIテスト
 

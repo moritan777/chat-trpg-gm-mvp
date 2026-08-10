@@ -3,7 +3,10 @@ body { margin: 0; } main { max-width: 800px; margin: auto; padding: 1rem; }
 h1 { color: #efc56d; } .card { padding: 1rem; margin: 1rem 0; background: #1d2939; border-radius: .5rem; }
 label { display: grid; gap: .4rem; margin-bottom: .8rem; }
 select, textarea, button { box-sizing: border-box; padding: .65rem; font: inherit; }
+input { box-sizing: border-box; width: 100%; padding: .65rem; font: inherit; color: #fff; background: #101722; border: 1px solid #718096; }
 select, textarea { width: 100%; color: #fff; background: #101722; border: 1px solid #718096; }
 button { margin-right: .5rem; color: #fff; background: #895d18; border: 1px solid #d5a64d; cursor: pointer; }
 #history { min-height: 8rem; max-height: 28rem; overflow: auto; white-space: pre-wrap; }
 #error { color: #ffcf7c; }
+fieldset { margin: 1rem 0; border: 1px solid #53657c; } small, code { color: #b8c8dd; overflow-wrap: anywhere; }
+button:disabled { opacity: .5; cursor: not-allowed; }

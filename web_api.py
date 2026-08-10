@@ -6,14 +6,19 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from chat_trpg_web.session_manager import SessionManager
+from chat_trpg_web.connections import ConnectionTester
+from chat_trpg_web.session_manager import ScenarioCatalog, SessionManager
+from chat_trpg_web.settings import SettingsService
 from fixed_truth_ai_gm_mvp import VERSION
 
 
 ROOT = Path(__file__).resolve().parent
 WEBUI = ROOT / "webui"
 app = FastAPI(title="Chat TTRPG GM Local API", version=VERSION)
-manager = SessionManager()
+catalog = ScenarioCatalog()
+settings_service = SettingsService(scenario_provider=catalog.list_public)
+manager = SessionManager(catalog, settings_service)
+connection_tester = ConnectionTester()
 
 
 class CreateSessionRequest(BaseModel):
@@ -22,6 +27,48 @@ class CreateSessionRequest(BaseModel):
 
 class CommandRequest(BaseModel):
     text: str
+
+
+class ChatSettingsRequest(BaseModel):
+    provider: str
+    base_url: str
+    model: str
+    api_key: str = ""
+
+
+class EmbeddingSettingsRequest(BaseModel):
+    base_url: str
+    model: str
+    api_key: str = ""
+
+
+class SettingsRequest(BaseModel):
+    selected_scenario: str
+    chat: ChatSettingsRequest
+    embedding: EmbeddingSettingsRequest
+
+
+class ConnectionTestRequest(BaseModel):
+    settings: SettingsRequest | None = None
+
+
+def request_dict(request):
+    return request.model_dump() if hasattr(request, "model_dump") else request.dict()
+
+
+def effective_for_test(request):
+    if request.settings is None:
+        return settings_service.effective(), "effective"
+    raw = request_dict(request.settings)
+    validated = settings_service.validate(raw)
+    effective = settings_service.effective()
+    effective["selected_scenario"] = validated["selected_scenario"]
+    for service in ("chat", "embedding"):
+        effective[service].update(validated[service])
+        supplied = raw[service].get("api_key", "")
+        if supplied:
+            effective[service]["api_key"] = supplied
+    return effective, "form"
 
 
 def public_session(session_id, session, opening=None):
@@ -46,6 +93,53 @@ def health():
 @app.get("/api/scenarios")
 def scenarios():
     return {"scenarios": manager.catalog.list_public()}
+
+
+@app.get("/api/settings")
+def get_settings():
+    return settings_service.get_public_settings()
+
+
+@app.put("/api/settings")
+def put_settings(request: SettingsRequest):
+    raw = request_dict(request)
+    try:
+        return settings_service.save(raw, raw["chat"].get("api_key"), raw["embedding"].get("api_key"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.post("/api/settings/reset")
+def reset_settings():
+    return settings_service.reset()
+
+
+@app.post("/api/settings/secrets/clear")
+def clear_settings_secrets():
+    settings_service.clear_session_secrets()
+    return settings_service.get_public_settings()
+
+
+@app.post("/api/connections/chat/test")
+def test_chat_connection(request: ConnectionTestRequest):
+    try:
+        effective, source = effective_for_test(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    result = connection_tester.chat(effective)
+    result["settings_source"] = source
+    return result
+
+
+@app.post("/api/connections/embedding/test")
+def test_embedding_connection(request: ConnectionTestRequest):
+    try:
+        effective, source = effective_for_test(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    result = connection_tester.embedding(effective)
+    result["settings_source"] = source
+    return result
 
 
 @app.post("/api/sessions", status_code=201)
