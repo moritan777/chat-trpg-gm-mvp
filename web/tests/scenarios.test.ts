@@ -1,3 +1,5 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { loadScenario, loadScenarioIndex, validateScenario } from "../src/scenarios";
 
 const scenario = { title: "灯台", opening: ["開始"], opening_scene: "harbor", player: { skills: {} }, locations: [{ id: "harbor", name: "港" }] };

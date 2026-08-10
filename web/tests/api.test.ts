@@ -1,3 +1,5 @@
+import { describe, expect, it } from "vitest";
+
 import { buildHeaders, chatCompletionsUrl, normalizeBaseUrl } from "../src/api/openAiCompatibleChatClient";
 
 describe("OpenAI compatible API helpers", () => {
