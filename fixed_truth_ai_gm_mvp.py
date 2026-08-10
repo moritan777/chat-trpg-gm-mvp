@@ -14,6 +14,7 @@ import contextlib
 import http.client
 import io
 import json
+import logging
 import math
 import os
 import random
@@ -23,6 +24,7 @@ import time
 import unicodedata
 import urllib.parse
 from pathlib import Path
+logger = logging.getLogger("uvicorn.error")
 VERSION = "v2.30.0 [explicit-companion-routing]"
 STANDARD_SKILLS = {
     "investigation": 0,
@@ -163,6 +165,25 @@ class Game:
             # shared engine/test error safe and classify it by status only.
             raise RuntimeError(f"HTTP {resp.status}")
         return json.loads(raw)
+
+    @staticmethod
+    def chat_choice_content(choice):
+        """Extract text from string and structured OpenAI-compatible choices."""
+        if not isinstance(choice, dict):
+            return ""
+        message = choice.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if isinstance(part, str):
+                    parts.append(part)
+                elif isinstance(part, dict) and isinstance(part.get("text"), str):
+                    parts.append(part["text"])
+            return "".join(parts)
+        return choice.get("text", "") if isinstance(choice.get("text"), str) else ""
 
     # ---------- LLM ----------
     def llm_base_url(self):
@@ -3441,6 +3462,17 @@ class Game:
                 "GM本文は確定事実と中立的な観察だけを扱い、未定義の重要度評価や攻略評価を加えない。",
             ],
         }
+        if (
+            target_id in self.npcs
+            and it.get("action_type") == "ask"
+            and res.get("category") != "npc_absent"
+            and self.npc_present_here(target_id, st)
+        ):
+            npc = self.npcs[target_id]
+            packet["allowed_npc_speakers"] = [
+                name for name in [npc.get("name"), *(npc.get("aliases", []) or [])]
+                if name
+            ]
         if res.get("category") == "generic_skill_action":
             packet["skill_result_consequence"] = {
                 "type": "generic_skill_action",
@@ -3477,7 +3509,7 @@ class Game:
 
         system_prompt = (
             "あなたはチャット型TRPGリプレイの1ターン描写を整えるレンダラー。\n"
-            "【出力契約・必須】GM行と仲間行だけを出力し、最初は必ず『GM:』。"
+            "【出力契約・必須】GM行、許可されたNPC行、仲間行だけを出力し、最初は必ず『GM:』。"
             "発見・判定・結果・補正・debug、JSON、箇条書き、コードブロックは禁止。仲間発言は0〜5行。1人につき0〜5行ではない。"
             "ただしcanonical_gm_textに含まれる判定開始、出目、補正、最終値、結果ランク、成功・失敗のGM行は、原文のまま保持する。\n\n"
             "【GMの責務・必須】canonical_gm_textに沿い、行動、観察可能な状態、場面を自然な卓上GM口調で描写する。"
@@ -3487,6 +3519,9 @@ class Game:
             "Canonical外の犯人、動機、意図、背景事情、重要度評価、攻略上の価値、正解行動を追加しない。"
             "会話NPCを秘密抜きで風景に描き、一覧にしない。"
             "仲間への直接の依頼では本人の反応をGM本文で先回りしない。\n\n"
+            "allowed_npc_speakersがある場合、質問へのNPC本人の回答はGMの間接話法だけでなく「話者名：本文」の独立行で出力してよい。"
+            "NPC行に使える話者名はallowed_npc_speakersだけであり、項目がない場合はNPC行を出力しない。"
+            "NPCはsafe_banter_packetの情報境界とcanonical_gm_textを越える新情報を追加しない。\n\n"
             + skill_result_prompt
             +
             "【仲間への入力・必須】safe_banter_packetを仲間の情報境界とする。"
@@ -3533,10 +3568,12 @@ class Game:
         for url in urls:
             try:
                 data = self.post_json(url, body, int(os.getenv("TABLE_TURN_TIMEOUT", os.getenv("GM_LINE_REWRITE_TIMEOUT", "90"))), "TABLE_TURN")
+                logger.info("Table turn response URL: %s", url)
+                logger.info("Table turn raw response JSON:\n%s", json.dumps(data, ensure_ascii=False, indent=2))
                 choice = data.get("choices", [{}])[0]
                 if self.debug_llm or self.debug:
                     print("[TABLE_TURN_CHOICE]", repr(choice))
-                out = choice.get("message", {}).get("content") or choice.get("text", "") or ""
+                out = self.chat_choice_content(choice)
                 out = out.strip()
 
                 out = re.sub(r"</?think>", "", out, flags=re.I).strip()
@@ -3650,8 +3687,15 @@ class Game:
 
         rendered_lines = [x.strip() for x in out.splitlines() if x.strip()]
         companion_prefixes = tuple(prefix for name in self.companion_names() for prefix in (f"{name}:", f"{name}：", f"{name}「"))
+        target_npc = self.npcs.get(it.get("target_id"), {}) if packet.get("allowed_npc_speakers") else {}
+        npc_speaker_names = [
+            str(name).strip()
+            for name in [target_npc.get("name", ""), *(target_npc.get("aliases", []) or [])]
+            if str(name).strip()
+        ]
+        npc_prefixes = tuple(prefix for name in npc_speaker_names for prefix in (f"{name}:", f"{name}：", f"{name}「"))
         speaker_line_pattern = re.compile(r"^([^:：]{1,20})[:：]")
-        gm_rendered, companion_rendered = [], []
+        gm_rendered, companion_rendered, npc_rendered = [], [], []
         dropped_unknown_speakers = []
         for line in rendered_lines:
             if line.startswith(companion_prefixes):
@@ -3671,6 +3715,16 @@ class Game:
 
                 companion_rendered.append(normalized_line)
 
+            elif npc_prefixes and line.startswith(npc_prefixes):
+                normalized_line = line
+                for name in npc_speaker_names:
+                    quoted_prefix = f"{name}「"
+                    if line.startswith(quoted_prefix):
+                        dialogue = line[len(quoted_prefix):]
+                        normalized_line = f"{name}：{dialogue[:-1] if dialogue.endswith('」') else dialogue}"
+                        break
+                npc_rendered.append(normalized_line)
+
             else:
                 speaker_match = speaker_line_pattern.match(line)
 
@@ -3682,6 +3736,10 @@ class Game:
 
         if dropped_unknown_speakers and (self.debug_llm or self.debug):
             print("[TABLE_TURN_DROPPED_UNKNOWN_COMPANION]", repr(dropped_unknown_speakers))
+        logger.info(
+            "Table turn speaker classification: gm=%d companion=%d npc=%d dropped=%s",
+            len(gm_rendered), len(companion_rendered), len(npc_rendered), dropped_unknown_speakers,
+        )
         if not gm_rendered:
             gm_rendered = [rendered_lines[0]] if rendered_lines else gm_lines
             companion_rendered = rendered_lines[1:] if len(rendered_lines) > 1 else []
@@ -3707,8 +3765,9 @@ class Game:
                 insert_at += 1
                 continue
             break
-        if companion_rendered:
-            new_notes[insert_at:insert_at] = companion_rendered
+        dialogue_rendered = npc_rendered + companion_rendered
+        if dialogue_rendered:
+            new_notes[insert_at:insert_at] = dialogue_rendered
 
         self.last_table_turn = {
             "canonical_gm": canonical_gm,
@@ -3716,6 +3775,12 @@ class Game:
             "packet": packet,
             "official_gm_lines": official_gm_lines,
             "official_gm_lines_inserted": official_lines_to_insert,
+            "structured_response": {
+                "gm_lines": gm_rendered,
+                "npc_lines": npc_rendered,
+                "companion_lines": companion_rendered,
+                "dropped_speaker_lines": dropped_unknown_speakers,
+            },
         }
         self.observe_companion_turn(companion_rendered, it)
         self.remember_companion_turn(companion_rendered, it, st)
@@ -3767,6 +3832,7 @@ class GameSession:
     """Shared, presentation-neutral boundary around the canonical Game engine."""
 
     def __init__(self, scenario_dir, **game_options):
+        self.echo_debug = bool(game_options.pop("echo_debug", False))
         self.game = Game(scenario_dir, **game_options)
         self.state = State(self.game.sc["opening_scene"])
         self.closed = False
@@ -3790,13 +3856,16 @@ class GameSession:
             notes, banter = self.game.render_table_turn(
                 notes, intent, result, events, self.state
             )
+        captured_debug = debug_output.getvalue()
+        if self.echo_debug and captured_debug:
+            print(captured_debug, end="", flush=True)
         lines = normalize_output_notes(notes)
         if banter:
             lines.extend(x for x in banter.splitlines() if x.strip())
         return {
             "lines": lines,
             "success": result.get("status") != "fail",
-            "debug": debug_output.getvalue().splitlines(),
+            "debug": captured_debug.splitlines(),
             **self.get_public_state(),
         }
 

@@ -42,6 +42,14 @@ APIを起動できます。Uvicornを直接使用する場合は次のとおり�
 python -m uvicorn web_api:app --host 127.0.0.1 --port 8000
 ```
 
+`start_web.bat`の起動時に「Show all logs?」へ`y`と答えると、判定、LLMの送受信、
+Embedding、speaker分類を含むデバッグ情報がAPI用コマンドプロンプトへ表示されます。
+バッチを使わず直接起動する場合は、次のように指定します。
+
+```bash
+python web_api.py --debug-all
+```
+
 セッションはPythonプロセスのメモリ内だけに保存され、データベースやブラウザStorageには
 保存されません。API停止・再起動時には全セッションが失われます。このサーバーは認証、TLS、
 永続化を備えた外部公開用サーバーではありません。`127.0.0.1`でのローカル利用を前提とし、

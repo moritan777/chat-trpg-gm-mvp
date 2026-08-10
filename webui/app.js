@@ -34,6 +34,13 @@ function addLine(speaker, text) {
   content.textContent = text;
   line.append(label, content); history.append(line);
 }
+function renderedLine(line) {
+  const text = String(line);
+  const labelled = text.match(/^([^:：]{1,20})[:：]\s*(.*)$/s);
+  if (labelled) return { speaker: labelled[1], text: labelled[2] };
+  const quoted = text.match(/^([^「]{1,20})「(.*)」$/s);
+  return quoted ? { speaker: quoted[1], text: quoted[2] } : { speaker: "GM", text };
+}
 function updateChatProviderUi(providerChanged = false) {
   const provider = byId("chat-provider").value;
   const disabled = provider === "none";
@@ -238,7 +245,7 @@ byId("command-form").addEventListener("submit", async (event) => {
   try {
     const data = await api(`/api/sessions/${sessionId}/commands`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
     const follow = isHistoryNearBottom();
-    appendLines(data.lines.map((line) => ({ speaker: "GM", text: line })), follow); setLocation(data.current_location);
+    appendLines(data.lines.map(renderedLine), follow); setLocation(data.current_location);
   } catch (error) { errorBox.textContent = error.message; }
   finally { commandInput.disabled = false; commandSubmit.disabled = false; commandInput.focus(); }
 });
