@@ -1,0 +1,15 @@
+:root { font-family: system-ui, sans-serif; color: #ece9e2; background: #131821; line-height: 1.6; }
+body { margin: 0; background: radial-gradient(circle at top, #25344b, #10141b 55%); min-height: 100vh; }
+main { max-width: 850px; margin: auto; padding: 2rem 1rem 4rem; }
+h1 { color: #f4cf7b; } h1 small { font-size: .45em; color: #b6c4d8; }
+.notice { border-left: 4px solid #e8b84e; background: #29291e; padding: .8rem 1rem; margin: 1rem 0; }
+.card { background: #1b2431ee; border: 1px solid #40506a; border-radius: 10px; padding: 1.25rem; margin: 1rem 0; box-shadow: 0 8px 24px #0005; }
+label { display: grid; gap: .3rem; margin: .8rem 0; font-weight: 700; }
+input, select, textarea { box-sizing: border-box; width: 100%; background: #0f151e; color: white; border: 1px solid #687a94; border-radius: 5px; padding: .7rem; font: inherit; }
+button { background: #34445b; color: white; border: 1px solid #7084a0; border-radius: 5px; padding: .65rem 1rem; cursor: pointer; }
+button.primary { background: #9b6418; border-color: #e3ad52; } .actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1rem; }
+code { overflow-wrap: anywhere; color: #b9dbff; } .security { color: #b7c1ce; font-size: .9rem; }
+.opening, .history { white-space: pre-wrap; background: #101721; border-radius: 6px; padding: 1rem; }
+.history { min-height: 6rem; max-height: 22rem; overflow-y: auto; } .message { margin: .45rem 0; } dt { font-weight: bold; color: #f4cf7b; }
+[role="alert"], [role="status"] { color: #ffd17d; }
+@media (max-width: 500px) { main { padding-top: .5rem; } .actions button { width: 100%; } }

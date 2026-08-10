@@ -1,5 +1,105 @@
 # Chat TTRPG GM MVP
 
+## Web版（Phase 1プレビュー）
+
+`web/`には、既存Python CLIと並行して動く静的Web UIがあります。これは完成したゲーム
+エンジンではなく、**シナリオ選択・導入表示・利用者自身のOpenAI互換Chat APIへの接続確認・
+セッション内の最小会話**だけを提供するPhase 1プレビューです。運営者のバックエンド、
+データベース、APIキー、中継サービスはありません。Python版、作者Markdown、変換・Lint・
+テストが引き続き仕様と挙動の正本です。
+
+### 調査結果とPhase 1の境界
+
+実装前にエンジン、作者Markdown、変換・Lint・パイプライン、テスト、`docs/`を確認しました。
+
+1. **Webへ流用できる構造:** 生成済み`scenario.json`の`title`、`opening`、
+   `opening_scene`、`locations`、`player.skills`と、OpenAI互換のChat API契約。
+2. **将来TypeScriptへ移植が必要な構造:** `State`を中心とするセッション状態、場所移動、
+   現在地ごとのNPC/オブジェクト対象解決、Discoverableと`requires_all`/`requires_any`、
+   Goal Intent、Solution Path、Table Turn、仲間会話、ブラウザ向け診断。
+3. **Python版に残す構造:** 作者Markdownからの変換、scenario lint、authoring pipeline、
+   現行CLI、現時点の正式な意味判定・Embedding判定・情報境界。Phase 1はこれらを変更しません。
+4. **ブラウザAPIの制約:** CORS、HTTPS/HTTP混在コンテンツ、Private Network Access、
+   API提供者がブラウザへキーを露出する利用を認めるか、という制約があります。静的サイト側で
+   回避はできません。
+5. **今回の範囲:** 接続設定/テスト、灯台scenarioの読込・導入、テキストとして安全に表示する
+   最小Chat、GitHub Pagesビルドだけです。
+
+Python版ではシナリオ読み込みと索引作成を`Game.__init__`、状態を`State`、入力の意味・対象判定を
+`judge`系、状態変更を`resolve`系が担当し、Chat/Embedding HTTP、Table Turn、仲間会話、診断、
+CLIはそれぞれ別メソッド群と`main`に分かれています。Web版ではこの意味論を固定キーワードや
+単純な`contains`へ置換していません。「アプリは情報を整理し、意味と表現はLLMが担当する」方針を
+保ちつつ、情報境界を実装できるまではプレビューと明示します。
+
+### ローカル開発
+
+Node.js 22を推奨します。
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+自動確認は`npm test`、型検査は`npm run typecheck`、本番ビルドは`npm run build`です。
+
+### API設定とキーの扱い
+
+画面でBase URL、Model、必要な場合だけAPI Keyを入力します。送信先
+`{Base URL}/chat/completions`は送信前に表示されます。キーをソース、GitHub、Actions Secrets、
+URL、コンソール、`localStorage`、`sessionStorage`へ保存しません。値はページのJavaScriptメモリに
+だけあり、再読込・タブ終了で消えます。入力したBase URLへブラウザから直接送信し、公開プロキシを
+経由しません。
+
+### llama.cpp、CORS、localhostの制約
+
+このリポジトリはllama.cppの特定コミットを固定していません。したがって、インストール済みの
+`llama-server --help`をそのバージョンの正本として確認してください。現行の公式server文書で
+共通して案内される基本オプションだけを使う起動例は次です（モデルパスは置換します）。
+
+```bash
+llama-server --model /path/to/model.gguf --host 127.0.0.1 --port 8080
+```
+
+起動後、`curl -i http://127.0.0.1:8080/v1/models`とブラウザ開発者ツールで、**実際の版が**
+GitHub PagesのOrigin（`https://<user>.github.io`）に対する適切な
+`Access-Control-Allow-Origin`およびOPTIONSプリフライトを返すか確認してください。公式資料は
+[llama.cpp HTTP server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)
+です。確認できないCORSオプション名は推測で記載していません。
+
+GitHub PagesはHTTPSです。ブラウザはHTTPSページから平文HTTPへの要求を混在コンテンツとして
+制限し得ます。loopback URLには特例があるブラウザもありますが、CORSに加えてPrivate Network
+Accessのプリフライト/許可が必要になる場合があり、ブラウザ・版・`localhost`と`127.0.0.1`で
+結果が異なります。`localhost`がIPv6 `::1`へ解決され、IPv4だけで待受けるserverへ届かない場合も
+あります。接続できない場合、開発者ツールで原因を確認し、まず同じ端末のローカル開発ページから
+試してください。APIキー不要のserverには空欄で接続でき、空欄時はAuthorizationヘッダー自体を
+送りません。キーを公開CORSプロキシへ渡す回避策は使用しないでください。
+
+### GitHub Pages公開
+
+1. GitHubの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にする。
+2. `main`へpushするか、Actionsの「Deploy Web Preview to GitHub Pages」を手動実行する。
+3. workflowのtest、typecheck、build、deployが完了した後、表示されたPages URLを開く。
+
+Viteのbaseはこのリポジトリ名`/chat-trpg-gm-mvp/`に設定してあるため、その配下でもアセットと
+scenarioのURLを解決できます。Pagesを有効化するためのAPIキーSecretは不要です。
+
+### Phase 1で未実装
+
+* 正式なロケーション移動判定
+* NPC知識境界とオブジェクト対象解決
+* Discoverable開示、`requires_all` / `requires_any`
+* Goal Intent、Solution Path
+* Topic解決とEmbedding判定
+* Table Turnおよび正式な仲間会話
+* Python版との完全互換
+
+Chat APIと将来のEmbedding設定は型と責務を分離しています。EmbeddingはChat判定へ置き換えたり
+削除したりしておらず、同一/別Base URL、ブラウザ内、Embeddingなし制限モードを将来追加できる
+型だけを予約しています。次Phaseでは、まず状態と情報境界をPythonのテストに照らして移植し、
+その後に対象解決、Discoverable条件、Goal/Solution、Embedding、Table Turnの順で互換テストを
+追加する必要があります。
+
 現行版: **v2.30.0 明示的な仲間ルーティング** (`v2.30.0 [explicit-companion-routing]`)
 
 バージョンの正本は `fixed_truth_ai_gm_mvp.py` の `VERSION` です。起動せずに
