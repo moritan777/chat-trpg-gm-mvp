@@ -26,10 +26,12 @@ button { margin: .2rem .45rem .2rem 0; padding: .65rem .9rem; color: #fff; backg
 button.primary { background: #a56d15; font-weight: 700; } .destructive button, .destructive-button { background: #642f2f; border-color: #bd7771; }
 .button-group { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid #405168; }
 .game-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
-#history { min-height: 12rem; max-height: 34rem; overflow: auto; white-space: pre-wrap; background: #131d29; border-radius: .4rem; padding: .75rem; }
+#history { height: clamp(12rem, 52vh, 34rem); overflow-y: auto; white-space: pre-wrap; background: #131d29; border-radius: .4rem; padding: .75rem; overscroll-behavior: contain; }
+#new-message { display: block; margin: .5rem auto; }
+#new-message[hidden] { display: none; }
 #error, [role="alert"] { color: #ffcf7c; }
 small, code { color: #b8c8dd; overflow-wrap: anywhere; } .key-help, .session-note { color: #c5ced9; font-size: .9rem; }
 button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
 .settings-details.is-locked[open] #settings-panel { opacity: .72; }
 :focus-visible { outline: 3px solid #f5d27f; outline-offset: 2px; }
-@media (max-width: 720px) { .summary-grid, .service-grid { grid-template-columns: 1fr; } main { width: min(100% - 1rem, 980px); } .card { padding: .8rem; } }
+@media (max-width: 720px) { .summary-grid, .service-grid { grid-template-columns: 1fr; } main { width: min(100% - 1rem, 980px); } .card { padding: .8rem; } #history { height: 42vh; } }

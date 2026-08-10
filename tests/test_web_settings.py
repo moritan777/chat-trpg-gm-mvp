@@ -65,5 +65,16 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaises(ValueError): service.validate({**DEFAULTS, "selected_scenario": "missing"})
         with self.assertRaises(ValueError): service.validate({**DEFAULTS, "chat": {**DEFAULTS["chat"], "model": " "}})
 
+    def test_openai_compatible_is_saved_without_secret_and_unknown_is_rejected(self):
+        service = self.service()
+        value = {**DEFAULTS, "chat": {"provider": "openai_compatible", "base_url": "https://example.invalid/v1/v1", "model": "example-model"}}
+        service.save(value, "TOP-SECRET")
+        saved = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual("openai_compatible", saved["chat"]["provider"])
+        self.assertEqual("https://example.invalid/v1", saved["chat"]["base_url"])
+        self.assertNotIn("TOP-SECRET", json.dumps(saved))
+        self.assertEqual("外部 OpenAI互換API", service.get_public_settings()["chat_provider_label"])
+        with self.assertRaises(ValueError): service.validate({**DEFAULTS, "chat": {**DEFAULTS["chat"], "provider": "unknown"}})
+
 
 if __name__ == "__main__": unittest.main()

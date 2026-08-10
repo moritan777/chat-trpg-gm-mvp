@@ -31,6 +31,17 @@ class ConnectionTests(unittest.TestCase):
             self.assertNotIn("TOP-SECRET", str(result)); self.assertNotIn("secret body", str(result))
 
     @patch("fixed_truth_ai_gm_mvp.Game.post_json")
+    def test_chat_status_classification(self, post):
+        for status, code in ((403, "authentication"), (404, "not_found"), (408, "timeout"), (429, "rate_limit"), (500, "http")):
+            post.side_effect = RuntimeError(f"HTTP {status} unsafe response")
+            self.assertEqual(code, self.tester.chat(effective())["error"])
+
+    def test_none_chat_is_disabled_without_request(self):
+        config = effective(); config["chat"]["provider"] = "none"
+        result = self.tester.chat(config)
+        self.assertTrue(result["ok"]); self.assertTrue(result["disabled"])
+
+    @patch("fixed_truth_ai_gm_mvp.Game.post_json")
     def test_embedding_success_uses_response_dimensions(self, post):
         post.return_value = {"data": [{"embedding": [0.1, 0.2, 0.3, 0.4]}]}
         result = self.tester.embedding(effective())

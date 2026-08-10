@@ -9,11 +9,23 @@ const connection = byId("connection");
 const locationHeading = byId("location");
 const commandInput = byId("command");
 const settingsMessage = byId("settings-message");
+const newMessageButton = byId("new-message");
+const commandSubmit = byId("command-submit");
+const HISTORY_BOTTOM_THRESHOLD = 120;
 const connectionStates = { chat: "unknown", embedding: "unknown" };
 let sessionId = null;
 let publicSettings = null;
 let hasSavedSettings = false;
 
+function distanceFromHistoryBottom() { return history.scrollHeight - history.scrollTop - history.clientHeight; }
+function isHistoryNearBottom() { return distanceFromHistoryBottom() <= HISTORY_BOTTOM_THRESHOLD; }
+function scrollHistoryToBottom() {
+  requestAnimationFrame(() => { history.scrollTop = history.scrollHeight; newMessageButton.hidden = true; });
+}
+function appendLines(lines, follow) {
+  lines.forEach(({ speaker, text }) => addLine(speaker, text));
+  if (follow) scrollHistoryToBottom(); else newMessageButton.hidden = false;
+}
 function addLine(speaker, text) {
   const line = document.createElement("p");
   const label = document.createElement("strong");
@@ -21,6 +33,18 @@ function addLine(speaker, text) {
   const content = document.createElement("span");
   content.textContent = text;
   line.append(label, content); history.append(line);
+}
+function updateChatProviderUi(providerChanged = false) {
+  const provider = byId("chat-provider").value;
+  const disabled = provider === "none";
+  const external = provider === "openai_compatible";
+  byId("chat-provider-help").textContent = disabled ? "Chat LLMを使わず既存のフォールバックで遊びます。接続テストは不要です。" : external ? "契約しているサービスのOpenAI互換Base URLとModelを入力し、接続テストしてください。" : "ローカルのllama.cppサーバーが必要です。";
+  byId("external-chat-notice").hidden = !external;
+  for (const id of ["chat-url", "chat-model", "chat-key-use", "chat-key"]) byId(id).disabled = disabled || Boolean(sessionId) || (id === "chat-key" && !byId("chat-key-use").checked);
+  byId("chat-test").disabled = disabled || Boolean(sessionId);
+  if (providerChanged && external && !byId("chat-key-use").checked) byId("chat-key-use").checked = true;
+  if (disabled) setConnectionState("chat", "disabled");
+  toggleKeyField("chat");
 }
 function setLocation(location) { locationHeading.textContent = `現在地: ${location.name}`; }
 function setSettingsDisabled(disabled) {
@@ -60,7 +84,7 @@ function keyStatusText(service) {
   if (!status || !status.configured) return "未設定";
   return status.source === "environment" ? "環境変数から設定済み" : "このセッションで設定済み";
 }
-function stateText(state) { return state === "success" ? "接続成功" : state === "failure" ? "接続失敗" : "未確認"; }
+function stateText(state) { return state === "success" ? "接続成功" : state === "failure" ? "接続失敗" : state === "disabled" ? "無効" : "未確認"; }
 function setConnectionState(service, state) {
   connectionStates[service] = state;
   const target = byId(`summary-${service}-state`);
@@ -113,6 +137,7 @@ function showSettings(data) {
   byId("chat-key-use").checked = data.api_keys.chat.configured;
   byId("embedding-key-use").checked = data.api_keys.embedding.configured;
   toggleKeyField("chat"); toggleKeyField("embedding");
+  updateChatProviderUi();
   byId("chat-key-status").textContent = `APIキー: ${keyStatusText("chat")}`;
   byId("embedding-key-status").textContent = `APIキー: ${keyStatusText("embedding")}`;
   byId("first-run-guide").hidden = hasSavedSettings;
@@ -147,14 +172,15 @@ function connectionFailure() { return connectionStates.chat === "failure" || con
 async function startGame() {
   errorBox.textContent = "";
   if (connectionFailure()) { errorBox.textContent = "接続テストに失敗しています。接続設定を確認してください。"; settingsDetails.open = true; return; }
-  if (!hasSavedSettings && publicSettings.effective.chat.provider !== "none" && (connectionStates.chat === "unknown" || connectionStates.embedding === "unknown")) {
+  const chatRequired = byId("chat-provider").value !== "none";
+  if (!hasSavedSettings && ((chatRequired && connectionStates.chat === "unknown") || connectionStates.embedding === "unknown")) {
     errorBox.textContent = "初回はChatとEmbeddingの接続テストを行い、設定を保存してください。"; settingsDetails.open = true; return;
   }
   if (hasSavedSettings && (connectionStates.chat === "unknown" || connectionStates.embedding === "unknown")) settingsMessage.textContent = "接続未確認の保存済み設定で開始します。";
   try {
     if (sessionId) await api(`/api/sessions/${sessionId}`, { method: "DELETE" });
     const data = await api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scenario_id: scenarioSelect.value }) });
-    sessionId = data.session_id; history.replaceChildren(); data.opening.forEach((line) => addLine("導入", line)); setLocation(data.current_location);
+    sessionId = data.session_id; history.replaceChildren(); newMessageButton.hidden = true; appendLines(data.opening.map((text) => ({ speaker: "導入", text })), true); setLocation(data.current_location);
     setSettingsDisabled(true); settingsDetails.open = false; updateSummary();
     byId("game-panel").scrollIntoView({ behavior: "smooth", block: "start" }); commandInput.focus();
   } catch (error) { errorBox.textContent = error.message; settingsDetails.open = true; }
@@ -162,7 +188,7 @@ async function startGame() {
 async function prepareNewGame() {
   if (sessionId && !window.confirm("進行中のゲームを終了して新しいゲームの準備をしますか？")) return;
   if (sessionId) { try { await api(`/api/sessions/${sessionId}`, { method: "DELETE" }); } catch (_) { /* already gone */ } }
-  sessionId = null; history.replaceChildren(); locationHeading.textContent = "未開始"; setSettingsDisabled(false); settingsMessage.textContent = "設定を確認してゲームを開始してください。"; updateSummary();
+  sessionId = null; history.replaceChildren(); newMessageButton.hidden = true; locationHeading.textContent = "未開始"; setSettingsDisabled(false); updateChatProviderUi(); settingsMessage.textContent = "設定を確認してゲームを開始してください。"; updateSummary();
 }
 function resetConnectionState(service) { setConnectionState(service, "unknown"); updateSummary(); }
 for (const service of ["chat", "embedding"]) {
@@ -170,7 +196,16 @@ for (const service of ["chat", "embedding"]) {
   byId(`${service}-key-use`).addEventListener("change", () => { toggleKeyField(service); resetConnectionState(service); });
 }
 scenarioSelect.addEventListener("change", updateSummary);
-byId("chat-provider").addEventListener("change", () => resetConnectionState("chat"));
+byId("chat-provider").addEventListener("change", () => {
+  resetConnectionState("chat");
+  if (byId("chat-provider").value === "openai_compatible") {
+    byId("chat-url").value = "";
+    byId("chat-model").value = "";
+  }
+  updateChatProviderUi(true); updateSummary();
+});
+history.addEventListener("scroll", () => { if (isHistoryNearBottom()) newMessageButton.hidden = true; });
+newMessageButton.addEventListener("click", scrollHistoryToBottom);
 byId("save-settings").addEventListener("click", saveSettings);
 byId("reset-settings").addEventListener("click", async () => {
   if (!window.confirm("保存設定とメモリ上のAPIキーを初期設定へ戻しますか？")) return;
@@ -186,8 +221,14 @@ byId("chat-test").addEventListener("click", () => testConnection("chat")); byId(
 byId("start").addEventListener("click", startGame); byId("new-game").addEventListener("click", prepareNewGame);
 byId("command-form").addEventListener("submit", async (event) => {
   event.preventDefault(); if (!sessionId) { errorBox.textContent = "先にゲームを開始してください。"; return; }
-  const text = commandInput.value.trim(); if (!text) return; addLine("あなた", text); commandInput.value = ""; errorBox.textContent = "";
-  try { const data = await api(`/api/sessions/${sessionId}/commands`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }); data.lines.forEach((line) => addLine("GM", line)); setLocation(data.current_location); }
-  catch (error) { errorBox.textContent = error.message; }
+  const text = commandInput.value.trim(); if (!text) return;
+  appendLines([{ speaker: "あなた", text }], true); commandInput.value = ""; errorBox.textContent = "";
+  commandInput.disabled = true; commandSubmit.disabled = true;
+  try {
+    const data = await api(`/api/sessions/${sessionId}/commands`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    const follow = isHistoryNearBottom();
+    appendLines(data.lines.map((line) => ({ speaker: "GM", text: line })), follow); setLocation(data.current_location);
+  } catch (error) { errorBox.textContent = error.message; }
+  finally { commandInput.disabled = false; commandSubmit.disabled = false; commandInput.focus(); }
 });
 loadSettings();

@@ -7,6 +7,7 @@ class WebUiStaticTests(unittest.TestCase):
     def setUpClass(cls):
         cls.html = Path("webui/index.html").read_text(encoding="utf-8")
         cls.script = Path("webui/app.js").read_text(encoding="utf-8")
+        cls.style = Path("webui/style.css").read_text(encoding="utf-8")
 
     def test_settings_form_and_password_fields_exist(self):
         for field in ("scenario", "chat-provider", "chat-url", "chat-model", "embedding-url", "embedding-model", "save-settings", "reset-settings", "clear-keys"):
@@ -44,6 +45,19 @@ class WebUiStaticTests(unittest.TestCase):
         self.assertIn('"/api/', self.script)
         self.assertNotIn("http://127.0.0.1:8080", self.script)
         self.assertNotIn("http://127.0.0.1:8081", self.script)
+
+    def test_conditional_history_follow_and_notification(self):
+        self.assertIn('id="history"', self.html)
+        self.assertIn('id="new-message"', self.html)
+        self.assertIn("HISTORY_BOTTOM_THRESHOLD = 120", self.script)
+        self.assertIn("scrollHeight - history.scrollTop - history.clientHeight", self.script)
+        self.assertIn("requestAnimationFrame", self.script)
+        self.assertIn("const follow = isHistoryNearBottom()", self.script)
+        self.assertIn("overflow-y: auto", self.style)
+
+    def test_three_chat_providers_are_present(self):
+        for provider in ("llama_cpp", "openai_compatible", "none"):
+            self.assertIn(f'value="{provider}"', self.html)
 
 
 if __name__ == "__main__": unittest.main()

@@ -159,7 +159,9 @@ class Game:
             print(f"[{tag}_STATUS]", resp.status, resp.reason)
             print(f"[{tag}_MS]", ms)
         if resp.status < 200 or resp.status >= 300:
-            raise RuntimeError(f"HTTP {resp.status} {resp.reason}: {raw[:500]}")
+            # Response bodies can echo credentials or provider details.  Keep the
+            # shared engine/test error safe and classify it by status only.
+            raise RuntimeError(f"HTTP {resp.status}")
         return json.loads(raw)
 
     # ---------- LLM ----------

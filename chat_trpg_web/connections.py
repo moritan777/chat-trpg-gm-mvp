@@ -19,6 +19,8 @@ class ConnectionTester:
         return game
 
     def chat(self, effective, timeout=10):
+        if effective["chat"]["provider"] == "none":
+            return {"ok": True, "disabled": True, "service": "chat", "provider": "none", "status": "無効"}
         game = self._game(effective)
         body = {"model": effective["chat"]["model"], "messages": [{"role": "user", "content": "Reply OK."}], "max_tokens": 3, "temperature": 0}
         started = time.perf_counter()
@@ -33,7 +35,9 @@ class ConnectionTester:
                 last_error = exc
         else:
             return self._failure("chat", effective["chat"], last_error)
-        return {"ok": True, "service": "chat", "base_url": game.llm_base_url(), "model": effective["chat"]["model"], "latency_ms": round((time.perf_counter()-started)*1000), "status": "接続成功"}
+        result = {"ok": True, "service": "chat", "provider": effective["chat"]["provider"], "base_url": game.llm_base_url(), "model": effective["chat"]["model"], "latency_ms": round((time.perf_counter()-started)*1000), "status": "接続成功"}
+        if isinstance(data.get("model"), str): result["response_model"] = data["model"]
+        return result
 
     def embedding(self, effective, timeout=10):
         game = self._game(effective)
@@ -58,6 +62,8 @@ class ConnectionTester:
         status_match = re.search(r"HTTP (\d{3})", message)
         if status_match and status_match.group(1) in {"401", "403"}: code, status = "authentication", "認証に失敗しました。APIキーを確認してください。"
         elif status_match and status_match.group(1) == "404": code, status = "not_found", "URLまたはモデル名を確認してください。"
+        elif status_match and status_match.group(1) in {"408"}: code, status = "timeout", "接続がタイムアウトしました。"
+        elif status_match and status_match.group(1) == "429": code, status = "rate_limit", "利用上限またはレート制限に達しました。"
         elif status_match: code, status = "http", f"サーバーがHTTP {status_match.group(1)}を返しました。"
         elif isinstance(exc, TimeoutError): code, status = "timeout", "接続がタイムアウトしました。"
         elif isinstance(exc, (ConnectionError, OSError)): code, status = "connection", "接続できません。サーバーが起動しているか確認してください。"
