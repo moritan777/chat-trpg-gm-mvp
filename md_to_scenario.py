@@ -3,12 +3,17 @@
 import argparse,json,re
 from pathlib import Path
 
+def load_scenario_markdown(path):
+    text=Path(path).read_text(encoding='utf-8')
+    m=re.search(r"```scenario-json\s*(.*?)\s*```", text, re.S)
+    if not m: raise ValueError('scenario-json block not found')
+    sc=json.loads(m.group(1)); tests=sc.pop('tests',{})
+    return sc, tests
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('author_md'); ap.add_argument('scenario_json'); a=ap.parse_args()
-    text=Path(a.author_md).read_text(encoding='utf-8')
-    m=re.search(r"```scenario-json\s*(.*?)\s*```", text, re.S)
-    if not m: raise SystemExit('scenario-json block not found')
-    sc=json.loads(m.group(1)); tests=sc.pop('tests',{})
+    try: sc,tests=load_scenario_markdown(a.author_md)
+    except ValueError as exc: raise SystemExit(str(exc)) from exc
     out=Path(a.scenario_json); out.parent.mkdir(parents=True,exist_ok=True)
     ex={}
     for name,spec in tests.items():
