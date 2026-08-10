@@ -1321,6 +1321,62 @@ class CompanionBanterTests(unittest.TestCase):
         )
         self.assertEqual(game.recent_companion_lines(), ["クロ: 俺は見たぞ。", "ガラン: なら捕まえよう。"])
 
+    def test_table_turn_normal_response_uses_2048_tokens_without_truncation_warning(self):
+        game = self.make_game()
+        game.debug_llm = True
+        captured = []
+        game.post_json = lambda url, body, timeout, tag: (
+            captured.append(body)
+            or {
+                "choices": [
+                    {
+                        "message": {"content": "GM: 全員で相談した。\nニコ: 順番に考えよう。"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+        )
+
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}, clear=True), redirect_stdout(io.StringIO()) as output:
+            rendered, _ = game.render_table_turn(
+                ["GM: 全員で相談した。"],
+                {"raw": "全員で相談する", "action_type": "consult", "target_id": "companion:全員"},
+                {"status": "ok", "category": "consult"},
+                [],
+                State("harbor"),
+            )
+
+        self.assertEqual(captured[0]["max_tokens"], 2048)
+        self.assertEqual(rendered, ["GM: 全員で相談した。", "ニコ: 順番に考えよう。"])
+        self.assertNotIn("[TABLE_TURN_TRUNCATED]", output.getvalue())
+
+    def test_table_turn_length_response_warns_in_debug_all_output(self):
+        game = self.make_game()
+        # --debug-all enables debug_llm; set the resulting Game flag directly.
+        game.debug_llm = True
+        game.post_json = lambda url, body, timeout, tag: {
+            "choices": [
+                {
+                    "message": {"content": "GM: 全員で相談した。\nクロ: 俺はまず"},
+                    "finish_reason": "length",
+                }
+            ]
+        }
+
+        with patch.dict(os.environ, {"LLM_PROVIDER": "llama_cpp"}, clear=True), redirect_stdout(io.StringIO()) as output:
+            game.render_table_turn(
+                ["GM: 全員で相談した。"],
+                {"raw": "全員で相談する", "action_type": "consult", "target_id": "companion:全員"},
+                {"status": "ok", "category": "consult"},
+                [],
+                State("harbor"),
+            )
+
+        self.assertIn(
+            "[TABLE_TURN_TRUNCATED]\nfinish_reason=length\nmax_tokens=2048",
+            output.getvalue(),
+        )
+
     def test_invalid_unified_responses_clear_history_without_second_llm_call(self):
         for response in ("", "```invalid```", "GM: 弁を調べた。\n発見: 禁止ラベル"):
             with self.subTest(response=response):

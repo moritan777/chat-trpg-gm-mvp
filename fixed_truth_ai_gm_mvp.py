@@ -3627,7 +3627,7 @@ class Game:
                 {"role": "user", "content": json.dumps(packet, ensure_ascii=False, separators=(",", ":"))},
             ],
             "temperature": self.table_turn_temperature(),
-            "max_tokens": int(os.getenv("TABLE_TURN_MAX_TOKENS", "360")),
+            "max_tokens": int(os.getenv("TABLE_TURN_MAX_TOKENS", "2048")),
         }
         if self.debug_llm:
             print("[TABLE_TURN_TEMPERATURE]", body["temperature"])
@@ -3652,6 +3652,10 @@ class Game:
                 choice = data.get("choices", [{}])[0]
                 if self.debug_llm or self.debug:
                     print("[TABLE_TURN_CHOICE]", repr(choice))
+                if choice.get("finish_reason") == "length" and self.debug_llm:
+                    print("[TABLE_TURN_TRUNCATED]")
+                    print("finish_reason=length")
+                    print(f"max_tokens={body['max_tokens']}")
                 out = self.chat_choice_content(choice)
                 out = out.strip()
 
