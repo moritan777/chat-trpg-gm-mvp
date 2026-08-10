@@ -22,7 +22,12 @@ class ScenarioCatalog:
                 "id": "lighthouse",
                 "title": "消えた灯台守",
                 "author_path": ROOT / "author_scenario_lighthouse_v2150.md",
-            }
+            },
+            "last_dragon": {
+                "id": "last_dragon",
+                "title": "最後の竜、空を忘れる",
+                "author_path": ROOT / "author_scenario_last_dragon_v2_1.md",
+            },
         }
 
     def list_public(self):

@@ -42,7 +42,16 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(200, health.status_code)
         self.assertEqual("ok", health.json()["status"])
         scenarios = self.client.get("/api/scenarios").json()["scenarios"]
-        self.assertIn("lighthouse", {item["id"] for item in scenarios})
+        scenario_ids = {item["id"] for item in scenarios}
+        self.assertIn("lighthouse", scenario_ids)
+        self.assertIn("last_dragon", scenario_ids)
+
+    def test_last_dragon_session_can_be_created(self):
+        response = self.client.post(
+            "/api/sessions", json={"scenario_id": "last_dragon"}
+        )
+        self.assertEqual(201, response.status_code, response.text)
+        self.assertTrue(response.json()["opening"])
 
     def test_creation_opening_command_and_location(self):
         created = self.create_session()
