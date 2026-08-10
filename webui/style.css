@@ -1,0 +1,35 @@
+:root { font-family: system-ui, sans-serif; color: #eee; background: #111722; line-height: 1.5; }
+* { box-sizing: border-box; }
+body { margin: 0; } main { width: min(100% - 2rem, 980px); margin: auto; padding: 1rem 0 3rem; }
+h1 { color: #efc56d; margin-bottom: .2rem; } h2, h3 { margin-top: 0; }
+.app-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.card { padding: 1rem; margin: 1rem 0; background: #1d2939; border: 1px solid #35465c; border-radius: .6rem; }
+.compact { padding-block: .8rem; }
+.summary-grid, .service-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+.summary-grid > div { min-width: 0; padding: .75rem; background: #151f2c; border-radius: .45rem; }
+.summary-grid p { margin: .2rem 0; overflow-wrap: anywhere; }
+.connection-state { font-weight: 700; } .state-unknown { color: #b8c8dd; } .state-success { color: #79d69b; } .state-failure { color: #ff9b91; }
+.settings-details > summary { cursor: pointer; color: #f1cf86; font-weight: 700; padding: .35rem; }
+.settings-details > summary::marker { color: #d5a64d; }
+.settings-details:not([open]) .close-label, .settings-details[open] .open-label { display: none; }
+.guide { margin: 1rem 0; padding: .8rem 1rem; background: #24354a; border-left: 4px solid #d5a64d; }
+.guide ol { margin: .4rem 0; padding-left: 1.5rem; }
+.service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 1rem; }
+fieldset { min-width: 0; margin: 0; padding: 1rem; border: 1px solid #53657c; border-radius: .45rem; }
+legend { padding: 0 .35rem; color: #efc56d; font-weight: 700; }
+label { display: grid; gap: .35rem; margin: .75rem 0 .35rem; font-weight: 600; }
+.key-toggle { display: flex; align-items: center; gap: .5rem; }
+.key-toggle input { width: auto; }
+input, select, textarea, button { font: inherit; }
+input, select, textarea { width: 100%; padding: .65rem; color: #fff; background: #101722; border: 1px solid #718096; border-radius: .3rem; }
+button { margin: .2rem .45rem .2rem 0; padding: .65rem .9rem; color: #fff; background: #895d18; border: 1px solid #d5a64d; border-radius: .3rem; cursor: pointer; }
+button.primary { background: #a56d15; font-weight: 700; } .destructive button, .destructive-button { background: #642f2f; border-color: #bd7771; }
+.button-group { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid #405168; }
+.game-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+#history { min-height: 12rem; max-height: 34rem; overflow: auto; white-space: pre-wrap; background: #131d29; border-radius: .4rem; padding: .75rem; }
+#error, [role="alert"] { color: #ffcf7c; }
+small, code { color: #b8c8dd; overflow-wrap: anywhere; } .key-help, .session-note { color: #c5ced9; font-size: .9rem; }
+button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .55; cursor: not-allowed; }
+.settings-details.is-locked[open] #settings-panel { opacity: .72; }
+:focus-visible { outline: 3px solid #f5d27f; outline-offset: 2px; }
+@media (max-width: 720px) { .summary-grid, .service-grid { grid-template-columns: 1fr; } main { width: min(100% - 1rem, 980px); } .card { padding: .8rem; } }
