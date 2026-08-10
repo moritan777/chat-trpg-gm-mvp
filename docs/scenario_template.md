@@ -1210,3 +1210,15 @@ NPCが知っていること
 
 ``
 
+
+---
+
+# 正本・自然言語導線テンプレート補足
+
+`author_scenario_*.md` の fenced `scenario-json` ブロックを正本とします。`scenario.json`、`sample_inputs_*.txt`、`test_expectations.json` は `md_to_scenario.py` による派生物であり、派生物だけを直接編集しません。
+
+NPCには `name` / `aliases` / `location` / `availability` / `knows` / `does_not_know` / `topics` を明示します。`topics` が参照するdiscoverableは `knows` に含め、`does_not_know` に含めず、NPC由来discoverableの `source.id` とtopic所有NPCを一致させます。導入で公開した固有名と役職名は代表的な質問語として検討し、`昨夜`、`事件`、`話`、`何か`のような一般語だけを登録しません。
+
+NPC質問はpresence確認後にのみ解決されます。不在・hidden・missingのNPCをtopic一致だけで会話可能にしません。条件はdiscoverableの `requires_all` / `requires_any` に保持します。
+
+各solution path、固有名/役職の言い換え、知識境界、NPC不在、前提不足、既発見再質問、`EMBEDDING_PROVIDER=none` のテストを用意してください。

@@ -108,6 +108,7 @@ class Game:
         self.alias_seen = set()
         self.emb_cache = {}
         self.emb_disabled = False
+        self.emb_disabled_reason = None
         self.last_banter = {}
         self.last_companion_turn = {}
         self.companion_diagnostics = {
@@ -781,8 +782,32 @@ class Game:
             return [data["embedding"]]
         raise RuntimeError("unsupported embedding response shape")
 
+    def embedding_failure_reason(self, error):
+        status = re.search(r"HTTP (\d{3})", str(error))
+        if status:
+            code = int(status.group(1))
+            if code == 429:
+                return "rate_limited"
+            if 400 <= code < 500:
+                return "http_4xx"
+            if code >= 500:
+                return "http_5xx"
+        if isinstance(error, (TimeoutError,)):
+            return "timeout"
+        if isinstance(error, (ConnectionError, OSError)):
+            return "connection_failed"
+        return "invalid_response"
+
     def get_embeddings(self, texts):
-        if (os.getenv("EMBEDDING_PROVIDER") or self.runtime_settings.get("embedding_provider") or "local") == "none" or self.emb_disabled:
+        provider = os.getenv("EMBEDDING_PROVIDER") or self.runtime_settings.get("embedding_provider") or "local"
+        if provider == "none":
+            self.emb_disabled_reason = "provider_none"
+            if self.debug_embedding:
+                print("[EMB_FALLBACK]\nreason=provider_none\nmode=lexical\nsession_disabled=false")
+            return None
+        if self.emb_disabled:
+            if self.debug_embedding:
+                print(f"[EMB_FALLBACK]\nreason={self.emb_disabled_reason or 'request_failed'}\nmode=lexical\nsession_disabled=true")
             return None
         result, missing, missing_idx = [], [], []
         for idx, text in enumerate(texts):
@@ -810,10 +835,12 @@ class Game:
             except Exception as e:
                 last_error = e
                 if self.debug_embedding:
-                    print("[EMB_ERROR]", url, repr(e))
+                    print(f"[EMB_ERROR] url={url} reason={self.embedding_failure_reason(e)}")
         self.emb_disabled = True
+        self.emb_disabled_reason = self.embedding_failure_reason(last_error)
         if self.debug_embedding:
-            print("[EMB_DISABLED]", repr(last_error))
+            print(f"[EMB_DISABLED] reason={self.emb_disabled_reason}")
+            print(f"[EMB_FALLBACK]\nreason={self.emb_disabled_reason}\nmode=lexical\nsession_disabled=true")
         return None
 
     def cosine(self, a, b):
@@ -1383,7 +1410,7 @@ class Game:
         topic_text = text[selected["end"]:].strip(" 、,。！？!?\u3000")
         topic_text = re.sub(r"^(?:は|、|,|\s)+", "", topic_text)
         topic_text = re.sub(
-            r"(?:について|のことを|のこと|を)?"
+            r"(?:について話を|について|のことを|のこと|を)?"
             r"(?:聞く|聞きたい|質問する|質問したい|尋ねる|尋ねたい|問いかける|教えてもらう)"
             r"[。！？!?]?$",
             "",
@@ -2325,7 +2352,8 @@ class Game:
             decision = "reveal" if pos >= threshold and not blocked else "none"
             if self.debug:
                 print(f"[EmbeddingJudge] input: {raw}\n  candidate={did} mode={mode} pos={pos:.3f} neg={neg:.3f} focus={focus_hit} adj={pos:.3f} blocked={blocked} decision={decision}")
-            self.last_embedding = {"candidate": did, "pos": pos, "neg": neg, "mode": mode, "decision": decision}
+            reason = None if decision == "reveal" else "candidate_below_threshold"
+            self.last_embedding = {"candidate": did, "pos": pos, "neg": neg, "mode": mode, "decision": decision, "reason": reason}
             comment = None if decision == "reveal" else self.gm_comment_for_blocked_discoverable(d, it, st)
             out.append((d, decision, comment))
         return out
@@ -3022,6 +3050,12 @@ class Game:
             return self.resolve_goal(it, st)
         if str(it.get("target_id")).startswith("surface:"):
             return self.inspect_surface_target(it.get("target_id"), st)
+        target_id = it.get("target_id")
+        # Presence is a hard information boundary. An authored topic must not
+        # bypass it merely because topic resolution runs before retrieval.
+        if target_id in self.npcs and it.get("action_type") in {"ask", "inspect", "skill_check"}:
+            if not self.npc_present_here(target_id, st):
+                return self.npc_absent_notes(target_id, st), {"status": "fail", "category": "npc_absent", "reason": "npc_absent"}, []
         # ASK_TOPIC_RESOLVER_v2140
         handled = self.resolve_ask_by_topic(it, st)
         if handled is not None:
@@ -3029,15 +3063,11 @@ class Game:
 
         notes, ev = [], []
         res = {"status": "ok", "category": "action"}
-        target_id = it.get("target_id")
         if target_id in self.objects and it.get("action_type") in {"inspect", "skill_check"}:
             if not self.object_visible_here(target_id, st):
                 if self.debug:
                     print(f"[TargetRejected] target={target_id} reason=not_visible_at_current_location")
                 return self.object_not_present_response(it, st)
-        if target_id in self.npcs and it.get("action_type") in {"ask", "inspect", "skill_check"}:
-            if not self.npc_present_here(target_id, st):
-                return self.npc_absent_notes(target_id, st), {"status": "fail", "category": "npc_absent"}, []
         if target_id in self.objects:
             notes += [f"GM: {self.objects[target_id]['name']}に注意を向けます。", "GM: " + self.objects[target_id]["surface_text"]]
         elif target_id in self.npcs:
@@ -3057,7 +3087,7 @@ class Game:
                 comments.append(comment)
         if not ev and comments:
             notes.append(comments[0])
-            res = {"status": "fail", "category": "no_reveal"}
+            res = {"status": "fail", "category": "no_reveal", "reason": (self.last_embedding or {}).get("reason", "candidate_below_threshold")}
         elif not ev and it.get("action_type") in {"ask", "inspect"}:
             notes.append(self.gm_comment_for_no_reveal(it, st))
             res = {"status": "fail", "category": "no_reveal"}

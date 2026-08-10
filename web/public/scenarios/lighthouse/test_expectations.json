@@ -1,0 +1,61 @@
+{
+  "testimony_success": {
+    "expect": [
+      "[GoalPath] selected=testimony_route",
+      "セッション終了。"
+    ],
+    "dice_total": 3
+  },
+  "physical_success": {
+    "expect": [
+      "[GoalPath] selected=physical_route",
+      "セッション終了。"
+    ],
+    "dice_total": 3
+  },
+  "lighthouse_success": {
+    "expect": [
+      "[GoalPath] selected=lighthouse_route",
+      "セッション終了。"
+    ],
+    "dice_total": 3,
+    "skill_dice_total": 7
+  },
+  "fail": {
+    "expect": [
+      "灯台守を助けるには、まず居場所までたどり着く必要があります。"
+    ],
+    "expect_not": [
+      "発見: 漁師バロは、昨夜の灯台消灯直後"
+    ]
+  },
+  "skill_blocked": {
+    "expect": [
+      "今の確認では、それ以上のことは分からない。"
+    ]
+  },
+  "topic_resolution": {
+    "expect": [
+      "村長",
+      "青い光",
+      "漁師"
+    ],
+    "expect_not": [
+      "港の倉庫で人影を見たって話してくれた"
+    ]
+  },
+  "free_action_success": {
+    "expect": [
+      "灯台入口まで登り切りました。"
+    ],
+    "skill_dice_total": 7
+  },
+  "natural_name_routing": {
+    "expect": [
+      "発見: 村長は、灯台の灯が消える直前に港の倉庫で人影を見たと話した。"
+    ],
+    "expect_not": [
+      "詳しいことを知らない"
+    ]
+  }
+}

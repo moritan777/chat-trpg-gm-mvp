@@ -94,3 +94,9 @@ python web_api.py --debug-all
 
 `TABLE_TURN_TEMPERATURE`の通常利用の目安は`0.8`〜`1.0`、開始値は既定の`0.9`です。結果は
 モデル、量子化、サーバー側sampling、シナリオによって変わるため品質を保証する値ではありません。
+
+## Embedding接続テストとゲーム中fallback
+
+接続テストは1件の入力で疎通とレスポンス形状を確認します。ゲーム中はプレイヤー入力と複数の `positive_examples` を一括送信するため、接続テスト成功だけではゲーム中の複数入力リクエスト成功を保証しません。
+
+ゲーム中の全Embedding endpointが失敗すると、そのGameセッションでは追加送信を止めてlexical判定へ移ります。`--debug-embedding`または`--debug-all`では `[EMB_FALLBACK]` の `reason`、`mode=lexical`、`session_disabled`を確認できます。認証情報やレスポンス本文は出力しません。設定変更は新規Webセッション作成時に新しいGameへ取り込まれるため、既存セッションのメモリcacheは新規セッションへ引き継がれません。

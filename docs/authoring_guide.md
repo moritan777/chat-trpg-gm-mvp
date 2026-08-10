@@ -566,3 +566,19 @@ v2.15.0 から追加された項目です。
 ```
 
 ことを優先してください。
+
+---
+
+# NPC質問の情報境界
+
+`knows` はNPCが公開できるdiscoverable、`does_not_know` はそのNPCから公開してはいけないdiscoverable、`topics` は質問話題をそのNPCが知るdiscoverableへ解決する表です。次を必須条件とします。
+
+```text
+topics参照 ⊆ knows
+topics参照 ∩ does_not_know = 空集合
+NPC由来discoverable.source.id = topic所有NPC
+```
+
+NPC質問は対象NPCのpresence確認後にだけtopic解決されます。不在NPCは `npc_absent` となり、authored topic、`location_hint`、名前の一致でpresenceを迂回しません。条件付きdiscoverableの前提は `requires_all` / `requires_any` に保持し、topicsには移しません。
+
+主要導線では、導入に出した固有名、役職、`name`、`aliases`をtopicと `positive_examples` に照合してください。lexical fallbackは単純な文字列部分一致なので、主要ルートをEmbeddingだけに依存させないでください。
