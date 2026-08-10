@@ -42,14 +42,35 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(post.call_args.args[0], result["url"])
         self.assertEqual("gemini-2.5-flash", result["response_model"])
 
+    def test_chat_url_normalizes_supported_base_url_suffixes_without_guessing(self):
+        game = self.tester._game(effective())
+        expected = "https://example.invalid/v1/chat/completions"
+        for base in (
+            "https://example.invalid/v1",
+            "https://example.invalid/v1/",
+            expected,
+        ):
+            game.runtime_settings["chat_base_url"] = base
+            self.assertEqual([expected], game.llm_chat_urls())
+
+        gemini = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        for base in (
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+            gemini,
+        ):
+            game.runtime_settings["chat_base_url"] = base
+            self.assertEqual([gemini], game.llm_chat_urls())
+            self.assertNotIn("/openai/v1/", game.llm_chat_urls()[0])
+
     @patch("fixed_truth_ai_gm_mvp.Game.post_json")
     def test_chat_accepts_structured_text_content(self, post):
         post.return_value = {"choices": [{"message": {"content": [{"type": "text", "text": "OK"}]}}]}
         self.assertTrue(self.tester.chat(effective())["ok"])
 
     @patch("fixed_truth_ai_gm_mvp.Game.post_json")
-    def test_chat_format_failure_has_detail_url_and_logs_json(self, post):
-        post.return_value = {"unexpected": True}
+    def test_chat_format_failure_has_detail_url_and_logs_only_safe_shape(self, post):
+        post.return_value = {"unexpected": "provider payload"}
         stream = StringIO()
         handler = logging.StreamHandler(stream)
         logging.getLogger("uvicorn.error").addHandler(handler)
@@ -60,7 +81,8 @@ class ConnectionTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("choices が存在しません", result["status"])
         self.assertIn("実際のURL:", result["status"])
-        self.assertIn('"unexpected": true', stream.getvalue())
+        self.assertIn("keys=['unexpected']", stream.getvalue())
+        self.assertNotIn("provider payload", stream.getvalue())
 
     @patch("fixed_truth_ai_gm_mvp.Game.post_json")
     def test_chat_error_object_has_specific_failure(self, post):
@@ -116,6 +138,21 @@ class ConnectionTests(unittest.TestCase):
             game.post_json("http://localhost/embeddings", {}, 1, "EMB")
         self.assertEqual("Bearer CHAT-KEY", captured[0]["Authorization"])
         self.assertEqual("Bearer EMBED-KEY", captured[1]["Authorization"])
+
+    def test_debug_config_reports_header_name_but_never_api_key(self):
+        game = ConnectionTester(debug_all=True)._game(effective("TOP-SECRET"))
+        with patch.object(game, "post_json", wraps=game.post_json), patch(
+            "fixed_truth_ai_gm_mvp.http.client.HTTPConnection"
+        ) as connection, patch("sys.stdout", new_callable=StringIO) as output:
+            response = connection.return_value.getresponse.return_value
+            response.status, response.reason, response.read.return_value = 200, "OK", b'{}'
+            game.post_json("http://localhost/chat", {"model": "m", "messages": []}, 1, "TABLE_TURN")
+        log = output.getvalue()
+        self.assertIn("[TABLE_TURN_CONFIG]", log)
+        self.assertIn("api_key_configured=true", log)
+        self.assertIn("auth_header=Authorization", log)
+        self.assertIn("proxy_enabled=false", log)
+        self.assertNotIn("TOP-SECRET", log)
 
 
 if __name__ == "__main__": unittest.main()
