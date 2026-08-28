@@ -125,14 +125,14 @@ Web UIを使わず直接プレイしたり、入力スクリプトで再現確�
 
 ## ドキュメント
 
-* [Web版セットアップ](docs/web_setup.md) — `.bat`と`.py`の使い分け、初回設定、保存範囲
-* [LLM / Embedding設定](docs/llm_configuration.md) — Gemini、llama.cpp、環境変数、生成パラメータ
-* [トラブルシューティング](docs/troubleshooting.md) — 接続、設定上書き、TABLE_TURNの調査
-* [CLI版の使い方](docs/cli_usage.md) — `fixed_truth_ai_gm_mvp.py`のオプションとデバッグ
-* [シナリオ作成ワークフロー](docs/authoring_workflow.md) — 変換、Lint、テスト
-* [Authoring Guide](docs/authoring_guide.md) — シナリオ記法の詳細
-* [Authoring Best Practices](docs/authoring_best_practices.md) — シナリオ設計の推奨事項
-* [Authoring Prompt](docs/authoring_prompt.md) — LLMを使った作者向けプロンプト
+資料の一覧と推奨する読む順序は[ドキュメント案内](docs/README.md)にまとめています。
+
+| 対象 | まず読む資料 | 内容 |
+| --- | --- | --- |
+| プレイヤー・利用者 | [Web版セットアップ](docs/web_setup.md) | インストール、起動、初回設定 |
+| CLI利用者 | [CLI版の使い方](docs/cli_usage.md) | 対話プレイ、入力スクリプト、デバッグ |
+| シナリオ作者 | [シナリオ作成ワークフロー](docs/authoring_workflow.md) | 編集、変換、Lint、テスト |
+| 問題を調査する人 | [トラブルシューティング](docs/troubleshooting.md) | 接続、設定上書き、ログの確認 |
 
 ## 特徴
 

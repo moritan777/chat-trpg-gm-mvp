@@ -5,3 +5,4 @@ __pycache__/
 scenario_*/
 
 *.tsbuildinfo
+node_modules/
